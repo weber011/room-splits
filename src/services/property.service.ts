@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
-import { Property, PropertySearchParams } from "@/types";
+import { Property, PropertySearchParams, RoomOption, SharingType } from "@/types";
 import { propertyUnlockService } from "./property-unlock.service";
+import { PLATFORM_SETTINGS, isLocationInSupportedRegion } from "@/config/business-rules.config";
 
 // Production Jharkhand MVP Seed Data
 const SEED_PROPERTIES: Property[] = [
@@ -17,6 +18,7 @@ const SEED_PROPERTIES: Property[] = [
       locality: "Lalpur",
       city: "Ranchi",
       state: "Jharkhand",
+      country: "India",
       pincode: "834001",
       latitude: 23.3698,
       longitude: 85.3314,
@@ -62,6 +64,7 @@ const SEED_PROPERTIES: Property[] = [
       locality: "Morabadi",
       city: "Ranchi",
       state: "Jharkhand",
+      country: "India",
       pincode: "834008",
       latitude: 23.3852,
       longitude: 85.3245,
@@ -107,6 +110,7 @@ const SEED_PROPERTIES: Property[] = [
       locality: "Bistupur",
       city: "Jamshedpur",
       state: "Jharkhand",
+      country: "India",
       pincode: "831001",
       latitude: 22.7926,
       longitude: 86.1843,
@@ -150,6 +154,7 @@ const SEED_PROPERTIES: Property[] = [
       locality: "Saraidhela",
       city: "Dhanbad",
       state: "Jharkhand",
+      country: "India",
       pincode: "828127",
       latitude: 23.8123,
       longitude: 86.4389,
@@ -180,7 +185,9 @@ const SEED_PROPERTIES: Property[] = [
       visitInstructions: "Located next to Steel Gate SBI ATM.",
     },
   },
-];/**
+];
+
+/**
  * Server-Side Access Control Sanitization Helper
  * Strictly strips exact address, coordinates, owner phone/whatsapp & visit instructions unless property is unlocked
  */
@@ -189,7 +196,7 @@ export function sanitizePropertyForAccess(raw: Property, isUnlocked: boolean): P
     return {
       ...raw,
       isUnlocked: true,
-      unlockFee: 9,
+      unlockFee: PLATFORM_SETTINGS.PROPERTY_UNLOCK_PRICE,
     };
   }
 
@@ -197,15 +204,15 @@ export function sanitizePropertyForAccess(raw: Property, isUnlocked: boolean): P
   return {
     ...raw,
     isUnlocked: false,
-    unlockFee: 9,
+    unlockFee: PLATFORM_SETTINGS.PROPERTY_UNLOCK_PRICE,
     location: {
       ...raw.location,
-      address: `🔒 Exact Location Locked (${raw.location.locality}, ${raw.location.city})`,
+      address: `${PLATFORM_SETTINGS.LOCKED_LOCATION_LABEL} (${raw.location.locality}, ${raw.location.city})`,
       latitude: undefined,
       longitude: undefined,
     },
     ownerContact: undefined,
-    rules: raw.rules.map(() => "🔒 House rule unlocked with ₹9 Property Access Pass"),
+    rules: raw.rules.map(() => `🔒 House rule unlocked with ${PLATFORM_SETTINGS.UNLOCK_PRICE_LABEL}`),
   };
 }
 
@@ -215,8 +222,70 @@ export interface PropertyService {
   getRecommendedProperties(): Promise<Property[]>;
   getPropertiesByCity(city: string): Promise<Property[]>;
   searchProperties(params: PropertySearchParams): Promise<{ properties: Property[]; total: number }>;
-  getPropertyById(id: string, userId?: string): Promise<Property | null>;
-  getPropertyBySlug(slug: string, userId?: string): Promise<Property | null>;
+  getPropertyById(id: string, userId?: string, userRole?: string, userOwnerId?: string): Promise<Property | null>;
+  getPropertyBySlug(slug: string, userId?: string, userRole?: string, userOwnerId?: string): Promise<Property | null>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDbRowToFullProperty(row: any): Property {
+  const roomOptions: RoomOption[] = Array.isArray(row.rooms)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? row.rooms.map((rm: any) => ({
+        id: rm.id,
+        sharingType: rm.sharing_type as SharingType,
+        monthlyRent: Number(rm.monthly_rent),
+        securityDeposit: Number(rm.security_deposit),
+        totalBeds: rm.total_beds,
+        availableBeds: rm.available_beds,
+        hasAttachedBathroom: rm.has_attached_bathroom,
+        hasBalcony: rm.has_balcony,
+      }))
+    : [];
+
+  const images: string[] = Array.isArray(row.property_images)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? row.property_images.map((img: any) => img.image_url)
+    : ["https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80"];
+
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    title: row.title,
+    slug: row.slug,
+    description: row.description,
+    category: row.category,
+    genderPolicy: row.gender_policy,
+    location: {
+      address: row.address_line || "",
+      locality: row.locality || "",
+      city: row.city || "",
+      state: row.state || "Jharkhand",
+      country: row.country || "India",
+      pincode: row.pincode || "",
+      latitude: row.latitude ? Number(row.latitude) : undefined,
+      longitude: row.longitude ? Number(row.longitude) : undefined,
+    },
+    amenities: ["Wi-Fi", "3x Daily Meals", "AC Rooms", "24/7 Security", "Power Backup"],
+    rules: ["Standard House Rules"],
+    images: images,
+    coverImage: images[0] || "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
+    featured: row.is_featured ?? false,
+    verified: row.verification_status === "VERIFIED",
+    startingPrice: Number(row.starting_price) || 8000,
+    rating: Number(row.rating) || 4.8,
+    reviewCount: row.review_count ?? 50,
+    roomOptions,
+    noticePeriodDays: row.notice_period_days ?? 30,
+    lockInMonths: row.lock_in_months ?? 3,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ownerContact: {
+      ownerName: "Property Host",
+      phone: "+91 94311 00999",
+      whatsapp: "+91 94311 00999",
+      visitInstructions: "Show your ₹9 Visit Pass confirmation at the reception.",
+    },
+  };
 }
 
 export const propertyService: PropertyService = {
@@ -225,14 +294,22 @@ export const propertyService: PropertyService = {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("properties")
-        .select("*")
-        .eq("is_published", true);
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
+        .eq("is_published", true)
+        .eq("verification_status", "VERIFIED")
+        .eq("state", "Jharkhand")
+        .order("created_at", { ascending: false });
 
       if (error || !data || data.length === 0) {
         return SEED_PROPERTIES.map((p) => sanitizePropertyForAccess(p, false));
       }
 
-      return data.map((row) => sanitizePropertyForAccess(mapDbRowToProperty(row), false));
+      return data.map((row) => sanitizePropertyForAccess(mapDbRowToFullProperty(row), false));
     } catch {
       return SEED_PROPERTIES.map((p) => sanitizePropertyForAccess(p, false));
     }
@@ -243,8 +320,14 @@ export const propertyService: PropertyService = {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("properties")
-        .select("*")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
         .eq("is_published", true)
+        .eq("verification_status", "VERIFIED")
         .eq("is_featured", true)
         .limit(6);
 
@@ -252,7 +335,7 @@ export const propertyService: PropertyService = {
         return SEED_PROPERTIES.filter((p) => p.featured).map((p) => sanitizePropertyForAccess(p, false));
       }
 
-      return data.map((row) => sanitizePropertyForAccess(mapDbRowToProperty(row), false));
+      return data.map((row) => sanitizePropertyForAccess(mapDbRowToFullProperty(row), false));
     } catch {
       return SEED_PROPERTIES.filter((p) => p.featured).map((p) => sanitizePropertyForAccess(p, false));
     }
@@ -263,8 +346,14 @@ export const propertyService: PropertyService = {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("properties")
-        .select("*")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
         .eq("is_published", true)
+        .eq("verification_status", "VERIFIED")
         .gte("rating", 4.8)
         .limit(6);
 
@@ -272,7 +361,7 @@ export const propertyService: PropertyService = {
         return SEED_PROPERTIES.sort((a, b) => b.rating - a.rating).map((p) => sanitizePropertyForAccess(p, false));
       }
 
-      return data.map((row) => sanitizePropertyForAccess(mapDbRowToProperty(row), false));
+      return data.map((row) => sanitizePropertyForAccess(mapDbRowToFullProperty(row), false));
     } catch {
       return SEED_PROPERTIES.sort((a, b) => b.rating - a.rating).map((p) => sanitizePropertyForAccess(p, false));
     }
@@ -283,22 +372,29 @@ export const propertyService: PropertyService = {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("properties")
-        .select("*")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
         .eq("is_published", true)
+        .eq("verification_status", "VERIFIED")
         .ilike("city", `%${city}%`);
 
       if (error || !data || data.length === 0) {
         return SEED_PROPERTIES.filter((p) => p.location.city.toLowerCase().includes(city.toLowerCase())).map((p) => sanitizePropertyForAccess(p, false));
       }
 
-      return data.map((row) => sanitizePropertyForAccess(mapDbRowToProperty(row), false));
+      return data.map((row) => sanitizePropertyForAccess(mapDbRowToFullProperty(row), false));
     } catch {
       return SEED_PROPERTIES.filter((p) => p.location.city.toLowerCase().includes(city.toLowerCase())).map((p) => sanitizePropertyForAccess(p, false));
     }
   },
 
   async searchProperties(params: PropertySearchParams): Promise<{ properties: Property[]; total: number }> {
-    let result = [...SEED_PROPERTIES];
+    const all = await this.getAllProperties();
+    let result = all.filter((p) => isLocationInSupportedRegion(p.location).valid);
 
     if (params.city) {
       result = result.filter((p) => p.location.city.toLowerCase().includes(params.city!.toLowerCase()));
@@ -336,55 +432,80 @@ export const propertyService: PropertyService = {
       }
     }
 
-    const sanitized = result.map((p) => sanitizePropertyForAccess(p, false));
-    return { properties: sanitized, total: sanitized.length };
+    return { properties: result, total: result.length };
   },
 
-  async getPropertyById(id: string, userId?: string): Promise<Property | null> {
-    const raw = SEED_PROPERTIES.find((p) => p.id === id) || SEED_PROPERTIES[0];
-    const isUnlocked = await propertyUnlockService.hasUserUnlockedProperty(userId, raw.id);
-    return sanitizePropertyForAccess(raw, isUnlocked);
+  async getPropertyById(
+    id: string,
+    userId?: string,
+    userRole?: string,
+    userOwnerId?: string
+  ): Promise<Property | null> {
+    try {
+      const supabase = createClient();
+      
+      const queryPromise = supabase
+        .from("properties")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
+        .eq("id", id)
+        .maybeSingle();
+
+      const timeoutPromise = new Promise<{ data: null; error: null }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: null }), 1500)
+      );
+
+      const res = await Promise.race([queryPromise, timeoutPromise]);
+      const data = res?.data;
+      const error = res?.error;
+
+      if (error || !data) {
+        const seed = SEED_PROPERTIES.find((p) => p.id === id);
+        if (!seed) return null;
+        const isUnlocked = await propertyUnlockService.canAccessPropertyDetails(userId, seed.id, seed.ownerId, userRole, userOwnerId);
+        return sanitizePropertyForAccess(seed, isUnlocked);
+      }
+
+      // Check if non-published or unverified property is being accessed by non-owner/non-admin
+      const isAuthorizedOwnerOrAdmin = (userRole === "admin") || (userOwnerId && userOwnerId === data.owner_id);
+      if (!isAuthorizedOwnerOrAdmin && (!data.is_published || data.verification_status !== "VERIFIED")) {
+        return null;
+      }
+
+      const isUnlocked = await propertyUnlockService.canAccessPropertyDetails(userId, data.id, data.owner_id, userRole, userOwnerId);
+      const fullProperty = mapDbRowToFullProperty(data);
+      return sanitizePropertyForAccess(fullProperty, isUnlocked);
+    } catch {
+      const seed = SEED_PROPERTIES.find((p) => p.id === id);
+      if (!seed) return null;
+      const isUnlocked = await propertyUnlockService.canAccessPropertyDetails(userId, seed.id, seed.ownerId, userRole, userOwnerId);
+      return sanitizePropertyForAccess(seed, isUnlocked);
+    }
   },
 
-  async getPropertyBySlug(slug: string, userId?: string): Promise<Property | null> {
-    const raw = SEED_PROPERTIES.find((p) => p.slug === slug) || SEED_PROPERTIES[0];
-    const isUnlocked = await propertyUnlockService.hasUserUnlockedProperty(userId, raw.id);
-    return sanitizePropertyForAccess(raw, isUnlocked);
+  async getPropertyBySlug(slug: string, userId?: string, userRole?: string, userOwnerId?: string): Promise<Property | null> {
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("properties")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (data) {
+        return this.getPropertyById(data.id, userId, userRole, userOwnerId);
+      }
+    } catch {
+      // Fallback
+    }
+
+    const seed = SEED_PROPERTIES.find((p) => p.slug === slug);
+    if (!seed) return null;
+    const isUnlocked = await propertyUnlockService.canAccessPropertyDetails(userId, seed.id, seed.ownerId, userRole, userOwnerId);
+    return sanitizePropertyForAccess(seed, isUnlocked);
   },
 };
-
-// Helper mapper for Supabase Database Rows
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapDbRowToProperty(row: any): Property {
-  return {
-    id: row.id,
-    ownerId: row.owner_id,
-    title: row.title,
-    slug: row.slug,
-    description: row.description,
-    category: row.category,
-    genderPolicy: row.gender_policy,
-    location: {
-      address: row.address_line || "",
-      locality: row.locality || "",
-      city: row.city || "",
-      state: row.state || "",
-      pincode: row.pincode || "",
-      latitude: row.latitude,
-      longitude: row.longitude,
-    },
-    amenities: row.amenities || ["Wi-Fi", "Food", "Housekeeping"],
-    rules: ["Standard PG Rules"],
-    images: row.images || ["https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80"],
-    coverImage: row.images?.[0] || "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
-    featured: row.is_featured || false,
-    startingPrice: Number(row.starting_price) || 8000,
-    rating: Number(row.rating) || 4.8,
-    reviewCount: row.review_count || 50,
-    roomOptions: [],
-    noticePeriodDays: row.notice_period_days || 30,
-    lockInMonths: row.lock_in_months || 3,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}

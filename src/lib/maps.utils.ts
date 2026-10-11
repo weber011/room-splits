@@ -49,11 +49,11 @@ export function getMaskedLocationCoordinates(
   coords: PropertyLocationCoordinates,
   isExactVisible: boolean
 ): {
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   displayAddress: string;
 } {
-  if (isExactVisible) {
+  if (isExactVisible && coords.latitude !== undefined && coords.longitude !== undefined) {
     return {
       latitude: coords.latitude,
       longitude: coords.longitude,
@@ -61,14 +61,11 @@ export function getMaskedLocationCoordinates(
     };
   }
 
-  // Slight deterministic offset for privacy masking (~450m offset)
-  const maskedLat = coords.latitude + 0.0035;
-  const maskedLng = coords.longitude + 0.0035;
-
+  // Safe approximate locality representation without leaking exact coords
   return {
-    latitude: Math.round(maskedLat * 10000) / 10000,
-    longitude: Math.round(maskedLng * 10000) / 10000,
-    displayAddress: `Approximate Locality Area (${coords.city}, ${coords.state} ${coords.pincode})`,
+    latitude: 23.3441,
+    longitude: 85.3096,
+    displayAddress: `Approximate Locality Area (${coords.city || "Ranchi"}, ${coords.state || "Jharkhand"})`,
   };
 }
 

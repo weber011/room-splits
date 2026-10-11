@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   getTenantActiveStay,
   submitStayReview,
-  recordRentPaymentSuccess,
 } from "@/services/stay.service";
 import { checkoutService } from "@/services/checkout.service";
 import { StayRecord } from "@/types/stay.types";
@@ -141,18 +140,95 @@ export default function MyStayPage() {
     }
   };
 
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof window !== "undefined" && (window as unknown as { Razorpay: unknown }).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
   const handlePayRent = async (rentItem: { id: string; amount: number; month: string }) => {
+    if (!stay) return;
     setPayingRentId(rentItem.id);
 
-    setTimeout(async () => {
-      const updated = await recordRentPaymentSuccess(stay.id, rentItem.id, {
-        razorpayPaymentId: `pay_RENT_${Date.now()}`,
-        razorpayOrderId: `order_RENT_${Date.now()}`,
-        paidAt: new Date().toISOString(),
+    try {
+      const res = await fetch("/api/payments/rent/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stayId: stay.id,
+          billingMonth: rentItem.month,
+        }),
       });
-      setStay({ ...updated });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || "Failed to create rent payment order.");
+        setPayingRentId(null);
+        return;
+      }
+
+      const scriptLoaded = await loadRazorpayScript();
+      if (scriptLoaded && typeof window !== "undefined" && (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay) {
+        const options = {
+          key: data.razorpayKeyId,
+          amount: data.amountInPaise,
+          currency: data.currency || "INR",
+          name: "RoomSplits",
+          description: `Monthly Rent — ${stay.propertyName}`,
+          order_id: data.razorpayOrderId,
+          handler: async function (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) {
+            try {
+              const verifyRes = await fetch("/api/payments/rent/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(response),
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyRes.ok && verifyData.success) {
+                await loadData();
+              } else {
+                alert(verifyData.error || "Rent payment verification failed.");
+              }
+            } catch {
+              alert("Network error during payment verification.");
+            } finally {
+              setPayingRentId(null);
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              setPayingRentId(null);
+            },
+          },
+          prefill: {
+            name: stay.tenantName,
+            email: stay.tenantEmail,
+            contact: stay.tenantPhone,
+          },
+          theme: {
+            color: "#10b981",
+          },
+        };
+
+        const rzp = new (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay(options);
+        rzp.open();
+      } else {
+        alert("Failed to load Razorpay payment SDK.");
+        setPayingRentId(null);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Rent payment order failed.";
+      alert(msg);
       setPayingRentId(null);
-    }, 1200);
+    }
   };
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {

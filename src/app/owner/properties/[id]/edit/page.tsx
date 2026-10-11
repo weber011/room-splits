@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LocationPicker } from "@/components/maps/LocationPicker";
 import { PropertyCategory, GenderPolicy } from "@/types";
 import { ArrowLeft, Save, CheckCircle2 } from "lucide-react";
 
@@ -30,6 +31,15 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
   const [lockInMonths, setLockInMonths] = useState(3);
   const [noticePeriodDays, setNoticePeriodDays] = useState(30);
 
+  // Location fields
+  const [address, setAddress] = useState("");
+  const [locality, setLocality] = useState("");
+  const [city, setCity] = useState("Ranchi");
+  const [state, setState] = useState("Jharkhand");
+  const [pincode, setPincode] = useState("");
+  const [latitude, setLatitude] = useState<number | undefined>(undefined);
+  const [longitude, setLongitude] = useState<number | undefined>(undefined);
+
   useEffect(() => {
     async function loadData() {
       setIsLoading(true);
@@ -43,6 +53,15 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
         setStartingPrice(prop.startingPrice);
         setLockInMonths(prop.lockInMonths);
         setNoticePeriodDays(prop.noticePeriodDays);
+        if (prop.location) {
+          setAddress(prop.location.address || "");
+          setLocality(prop.location.locality || "");
+          setCity(prop.location.city || "Ranchi");
+          setState(prop.location.state || "Jharkhand");
+          setPincode(prop.location.pincode || "");
+          setLatitude(prop.location.latitude);
+          setLongitude(prop.location.longitude);
+        }
       }
       setIsLoading(false);
     }
@@ -61,11 +80,22 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
         startingPrice: Number(startingPrice),
         lockInMonths: Number(lockInMonths),
         noticePeriodDays: Number(noticePeriodDays),
+        location: {
+          address,
+          locality,
+          city,
+          state,
+          country: "India",
+          pincode,
+          latitude,
+          longitude,
+        },
       });
       alert("Property updated successfully!");
       router.push("/owner/properties");
-    } catch {
-      alert("Failed to update property.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update property.";
+      alert(msg);
     } finally {
       setIsSaving(false);
     }
@@ -219,6 +249,31 @@ export default function EditPropertyPage({ params }: { params: Promise<{ id: str
               <Input type="number" value={noticePeriodDays} onChange={(e) => setNoticePeriodDays(Number(e.target.value))} />
             </div>
           </div>
+        </Card>
+
+        {/* Location & Address Card */}
+        <Card className="border-slate-800 bg-slate-900/80 p-6 space-y-6">
+          <h3 className="text-lg font-bold text-white border-b border-slate-800 pb-3">Location & Map Position</h3>
+
+          <LocationPicker
+            address={address}
+            locality={locality}
+            city={city}
+            state={state}
+            country="India"
+            pincode={pincode}
+            latitude={latitude}
+            longitude={longitude}
+            onChange={(loc) => {
+              setAddress(loc.address);
+              setLocality(loc.locality);
+              setCity(loc.city);
+              setState(loc.state);
+              setPincode(loc.pincode);
+              setLatitude(loc.latitude);
+              setLongitude(loc.longitude);
+            }}
+          />
         </Card>
       </main>
     </div>

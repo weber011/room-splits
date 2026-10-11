@@ -29,14 +29,19 @@ export default function AdminPaymentsPage() {
     loadPayments();
   }, []);
 
-  const totalGMV = payments.filter((p) => p.status === "SUCCESS").reduce((acc, p) => acc + p.amount, 0);
+  const totalGMV = payments
+    .filter((p) => (p.status as string) === "CAPTURED" || (p.status as string) === "SUCCESS" || (p.status as string) === "success")
+    .reduce((acc, p) => acc + p.amount, 0);
 
   const getStatusBadge = (status: RazorpayTransaction["status"]) => {
-    switch (status) {
+    switch (status as string) {
+      case "CAPTURED":
       case "SUCCESS":
-        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">SUCCESS</Badge>;
+      case "success":
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">CAPTURED</Badge>;
       case "PENDING":
       case "CREATED":
+      case "ORDER_CREATED":
         return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[9px]">PENDING</Badge>;
       case "FAILED":
         return <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/30 text-[9px]">FAILED</Badge>;

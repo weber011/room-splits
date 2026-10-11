@@ -29,12 +29,15 @@ export default function OwnerPaymentsPage() {
     loadPayments();
   }, []);
 
-  const totalCollected = payments.filter((p) => p.status === "SUCCESS").reduce((sum, p) => sum + p.amount, 0);
+  const isSuccessful = (status: string) => status === "CAPTURED" || status === "SUCCESS" || status === "success";
+
+  const totalCollected = payments.filter((p) => isSuccessful(p.status)).reduce((sum, p) => sum + p.amount, 0);
 
   const getStatusBadge = (status: RazorpayTransaction["status"]) => {
+    if (isSuccessful(status)) {
+      return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">CAPTURED</Badge>;
+    }
     switch (status) {
-      case "SUCCESS":
-        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[9px]">SUCCESS</Badge>;
       case "PENDING":
       case "CREATED":
         return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-[9px]">PENDING</Badge>;
@@ -76,7 +79,7 @@ export default function OwnerPaymentsPage() {
           </Card>
           <Card className="border-slate-800 bg-slate-900/80 p-5 space-y-1">
             <span className="text-xs text-slate-400 font-semibold">Successful Transactions</span>
-            <h3 className="text-2xl font-extrabold text-white">{payments.filter((p) => p.status === "SUCCESS").length}</h3>
+            <h3 className="text-2xl font-extrabold text-white">{payments.filter((p) => isSuccessful(p.status)).length}</h3>
           </Card>
           <Card className="border-slate-800 bg-slate-900/80 p-5 space-y-1">
             <span className="text-xs text-slate-400 font-semibold">Razorpay Integration</span>

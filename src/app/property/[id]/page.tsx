@@ -1,16 +1,44 @@
 import { Metadata } from "next";
 import { propertyService } from "@/services/property.service";
-import { PropertyImageGallery, PriceDisplay, AmenityBadge, VerifiedBadge, RoomCard, ReviewCard, VisitScheduleWidget, PropertyMap } from "@/components/common";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
+import { PLATFORM_SETTINGS } from "@/config/business-rules.config";
+import {
+  PropertyImageGallery,
+  PriceDisplay,
+  AmenityBadge,
+  VerifiedBadge,
+  RoomCard,
+  ReviewCard,
+  VisitScheduleWidget,
+  PropertyMap,
+  PropertyUnlockButton,
+} from "@/components/common";
+import { VisitRequestSection } from "@/components/common/VisitRequestSection";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { MapPin, CalendarCheck, CheckCircle2, User, Star, Lock, Phone, MessageSquare } from "lucide-react";
+import {
+  MapPin,
+  CalendarCheck,
+  CheckCircle2,
+  User,
+  Star,
+  Phone,
+  MessageSquare,
+  Building,
+} from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const resolvedParams = await params;
-  const property = await propertyService.getPropertyById(resolvedParams.id);
+  const authUser = await getAuthenticatedUser();
+  const property = await propertyService.getPropertyById(
+    resolvedParams.id,
+    authUser?.id,
+    authUser?.role,
+    authUser?.ownerId
+  );
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://roomsplits.com";
 
   if (!property) {
@@ -61,7 +89,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
-  const property = await propertyService.getPropertyById(resolvedParams.id);
+  const authUser = await getAuthenticatedUser();
+  const property = await propertyService.getPropertyById(
+    resolvedParams.id,
+    authUser?.id,
+    authUser?.role,
+    authUser?.ownerId
+  );
 
   if (!property) {
     notFound();
@@ -92,12 +126,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
       foodRating: 4.7,
       amenitiesRating: 5,
       valueForMoneyRating: 4.8,
-      comment: "Spacious rooms with daily housekeeping. Quiet and safe location near HSR BDA complex.",
+      comment: "Spacious rooms with daily housekeeping. Quiet and safe location.",
       isVerifiedResident: true,
       createdAt: "1 week ago",
     },
   ];
 
+  // PUBLIC JSON-LD STRUCTURED DATA (Omitted exact address, coordinates, or owner phone)
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SingleFamilyResidence",
@@ -106,17 +141,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
     image: property.images,
     address: {
       "@type": "PostalAddress",
-      streetAddress: property.location.address,
       addressLocality: property.location.locality,
-      addressRegion: property.location.state,
+      addressRegion: property.location.state || "Jharkhand",
       postalCode: property.location.pincode,
       addressCountry: "IN",
     },
-    geo: property.location.latitude ? {
-      "@type": "GeoCoordinates",
-      latitude: property.location.latitude,
-      longitude: property.location.longitude,
-    } : undefined,
     aggregateRating: {
       "@type": "AggregateRating",
       ratingValue: property.rating,
@@ -126,11 +155,12 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-8 pb-20">
-      {/* JSON-LD Structured Data for Search Engine Rich Snippets */}
+      {/* JSON-LD Structured Data */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+
       {/* Header Info */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div className="space-y-2">
@@ -142,7 +172,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">{property.title}</h1>
           <p className="text-sm text-slate-400 flex items-center gap-1">
             <MapPin className="h-4 w-4 text-emerald-400 shrink-0" />
-            <span>{property.location.address}, {property.location.locality}, {property.location.city} - {property.location.pincode}</span>
+            <span>
+              {property.isUnlocked
+                ? `${property.location.address}, ${property.location.locality}, ${property.location.city} - ${property.location.pincode}`
+                : `${property.location.locality}, ${property.location.city} - ${property.location.pincode}`}
+            </span>
           </p>
         </div>
 
@@ -165,49 +199,41 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
       </div>
 
       {/* Property Access Control Banner */}
-      {!property.isUnlocked ? (
-        <Card className="p-6 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 text-amber-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 font-bold text-amber-300 text-base">
-              <Lock className="h-5 w-5 text-amber-400 shrink-0" />
-              <span>🔒 Exact Location & Contact Details Locked</span>
+      <PropertyUnlockButton
+        propertyId={property.id}
+        propertyTitle={property.title}
+        isUnlocked={Boolean(property.isUnlocked)}
+        isLoggedIn={Boolean(authUser)}
+        variant="banner"
+      />
+      {property.isUnlocked && property.ownerContact?.phone && (
+        <Card className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 font-bold text-emerald-300 text-sm">
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+              <span>✓ Property Unlocked ({PLATFORM_SETTINGS.VISIT_PASS_LABEL}) &bull; Full Details &amp; Contact Active</span>
             </div>
-            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-              Unlock exact street address, exact Google Maps location, landlord phone number, WhatsApp contact & visit pass for ₹9.
+            <p className="text-[11px] text-slate-300">
+              {PLATFORM_SETTINGS.UNLOCK_PRICE_LABEL} unlock gives you access to property details and visit information. It does not reserve or book a room.
             </p>
           </div>
-          <Link href={`/visits/checkout/${property.id}`}>
-            <Button size="lg" className="bg-amber-400 hover:bg-amber-500 text-slate-950 font-extrabold gap-2 whitespace-nowrap text-xs sm:text-sm shadow-lg">
-              <Lock className="h-4 w-4" />
-              <span>Unlock this property for ₹9</span>
-            </Button>
-          </Link>
-        </Card>
-      ) : (
-        <Card className="p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 font-semibold">
-            <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
-            <span>✓ Property Access Pass Active (Unlocked for ₹9) &bull; Exact Address & Contact Unlocked</span>
-          </div>
-          {property.ownerContact?.phone && (
-            <div className="flex items-center gap-2">
-              <a href={`tel:${property.ownerContact.phone}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold hover:bg-emerald-500/30">
-                <Phone className="h-3.5 w-3.5" />
-                <span>{property.ownerContact.phone}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href={`tel:${property.ownerContact.phone}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono font-bold hover:bg-emerald-500/30">
+              <Phone className="h-3.5 w-3.5" />
+              <span>{property.ownerContact.phone}</span>
+            </a>
+            {property.ownerContact?.whatsapp && (
+              <a
+                href={`https://wa.me/${property.ownerContact.whatsapp.replace(/[^0-9]/g, "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                <span>WhatsApp</span>
               </a>
-              {property.ownerContact?.whatsapp && (
-                <a
-                  href={`https://wa.me/${property.ownerContact.whatsapp.replace(/[^0-9]/g, "")}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  <span>WhatsApp</span>
-                </a>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </Card>
       )}
 
@@ -228,7 +254,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
           {/* Room Sharing Options */}
           <section id="room-options" className="space-y-4">
-            <h3 className="text-xl font-bold text-white">Room Sharing Options & Monthly Rent</h3>
+            <h3 className="text-xl font-bold text-white">Room Sharing Options &amp; Monthly Rent</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {property.roomOptions.length > 0 ? (
                 property.roomOptions.map((room) => (
@@ -267,7 +293,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
           {/* Amenities */}
           <section className="space-y-3">
-            <h3 className="text-xl font-bold text-white">Included Amenities & Services</h3>
+            <h3 className="text-xl font-bold text-white">Included Amenities &amp; Services</h3>
             <div className="flex flex-wrap gap-2">
               {property.amenities.map((amenity) => (
                 <AmenityBadge key={amenity} name={amenity} showIcon />
@@ -277,7 +303,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
           {/* Property Rules */}
           <section className="space-y-3">
-            <h3 className="text-xl font-bold text-white">House Rules & Terms</h3>
+            <h3 className="text-xl font-bold text-white">House Rules &amp; Terms</h3>
             <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-2 text-xs text-slate-300">
               <div className="flex justify-between border-b border-slate-800 pb-2">
                 <span>Lock-in Period</span>
@@ -298,19 +324,47 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             </div>
           </section>
 
-          {/* Map Preview */}
+          {/* Private Visit Instructions (Unlocked Only) */}
+          {property.isUnlocked && property.ownerContact?.visitInstructions && (
+            <section className="space-y-3">
+              <h3 className="text-xl font-bold text-white">Private Visit Instructions</h3>
+              <Card className="p-5 bg-slate-900 border border-slate-800 space-y-2 text-xs text-slate-300">
+                <div className="flex items-center gap-2 font-bold text-white text-sm">
+                  <Building className="h-4 w-4 text-emerald-400" />
+                  <span>Host Access Note</span>
+                </div>
+                <p className="leading-relaxed">
+                  {property.ownerContact.visitInstructions}
+                </p>
+              </Card>
+            </section>
+          )}
+
+          {/* Request Visit Section */}
+          <section className="space-y-3">
+            <VisitRequestSection
+              propertyId={property.id}
+              propertyTitle={property.title}
+              isUnlocked={Boolean(property.isUnlocked)}
+              isLoggedIn={Boolean(authUser)}
+            />
+          </section>
+
+          {/* Map Section */}
           <section className="space-y-3">
             <PropertyMap
               title={property.title}
               location={{
-                latitude: property.location.latitude || 12.9784,
-                longitude: property.location.longitude || 77.6408,
-                formatted_address: `${property.location.address}, ${property.location.locality}, ${property.location.city}`,
+                latitude: property.isUnlocked ? property.location.latitude : undefined,
+                longitude: property.isUnlocked ? property.location.longitude : undefined,
+                formatted_address: property.isUnlocked
+                  ? `${property.location.address}, ${property.location.locality}, ${property.location.city}`
+                  : `Approximate Locality (${property.location.locality}, ${property.location.city})`,
                 city: property.location.city,
-                state: property.location.state || "Karnataka",
+                state: property.location.state || "Jharkhand",
                 pincode: property.location.pincode,
               }}
-              isExactLocationVisible={false}
+              isExactLocationVisible={Boolean(property.isUnlocked)}
             />
           </section>
 
@@ -340,7 +394,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
                 <User className="h-6 w-6" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-base">RoomSplits Property Manager</h4>
+                <h4 className="font-bold text-white text-base">
+                  {property.ownerContact?.ownerName || "RoomSplits Verified Host"}
+                </h4>
                 <VerifiedBadge type="owner" />
               </div>
             </div>

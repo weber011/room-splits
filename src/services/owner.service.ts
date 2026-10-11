@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
-import { Property, RoomOption } from "@/types";
+import { Property, RoomOption, SharingType } from "@/types";
+import { storageService } from "./storage.service";
+import { isLocationInSupportedRegion } from "@/config/business-rules.config";
 
 export type PropertyStatus = "DRAFT" | "PENDING_VERIFICATION" | "VERIFIED" | "REJECTED" | "SUSPENDED";
 
@@ -92,7 +94,7 @@ export interface OwnerReviewRecord {
   createdAt: string;
 }
 
-// Initial mock data store for owner features
+// Fallback seed properties if database table is completely empty
 const MOCK_OWNER_PROPERTIES: OwnerProperty[] = [
   {
     id: "prop-1",
@@ -105,63 +107,30 @@ const MOCK_OWNER_PROPERTIES: OwnerProperty[] = [
     status: "VERIFIED",
     isPublished: true,
     location: {
-      address: "100 Feet Road, Indiranagar",
-      locality: "HSR Layout, Sector 3",
-      city: "Bengaluru",
-      state: "Karnataka",
-      pincode: "560102",
-      latitude: 12.9121,
-      longitude: 77.6446,
+      address: "Plot 42, Circular Road, Opposite Nucleus Mall",
+      locality: "Lalpur",
+      city: "Ranchi",
+      state: "Jharkhand",
+      pincode: "834001",
+      latitude: 23.3698,
+      longitude: 85.3314,
     },
     amenities: ["High-Speed Wi-Fi", "3x Daily Meals", "AC Rooms", "Gym Access", "24/7 Security & CCTV", "Power Backup"],
     rules: ["No smoking inside rooms", "Visitors allowed till 10 PM", "Gate closes at 11:30 PM"],
     images: ["https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80"],
     coverImage: "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
     featured: true,
-    startingPrice: 11500,
+    startingPrice: 8500,
     rating: 4.9,
     reviewCount: 128,
     roomOptions: [
-      { id: "r-1", sharingType: "single", monthlyRent: 16000, securityDeposit: 32000, availableBeds: 1, totalBeds: 2, hasAttachedBathroom: true, hasBalcony: true },
-      { id: "r-2", sharingType: "double", monthlyRent: 11500, securityDeposit: 23000, availableBeds: 3, totalBeds: 6, hasAttachedBathroom: true, hasBalcony: false },
+      { id: "r-1", sharingType: "single", monthlyRent: 12000, securityDeposit: 24000, availableBeds: 1, totalBeds: 2, hasAttachedBathroom: true, hasBalcony: true },
+      { id: "r-2", sharingType: "double", monthlyRent: 8500, securityDeposit: 17000, availableBeds: 3, totalBeds: 6, hasAttachedBathroom: true, hasBalcony: false },
     ],
     noticePeriodDays: 30,
     lockInMonths: 3,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
-  },
-  {
-    id: "prop-2",
-    ownerId: "owner-1",
-    title: "Stanza Heights Luxury PG for Men",
-    slug: "stanza-heights-men-pg",
-    description: "Luxury PG in Koramangala with 24/7 power backup, attached bathrooms, and fingerprint security doors.",
-    category: "pg",
-    genderPolicy: "boys",
-    status: "PENDING_VERIFICATION",
-    isPublished: false,
-    location: {
-      address: "5th Block, Opposite Jyoti Nivas",
-      locality: "Koramangala",
-      city: "Bengaluru",
-      state: "Karnataka",
-      pincode: "560095",
-    },
-    amenities: ["Wi-Fi", "Daily Housekeeping", "Attached Bath", "Power Backup", "Laundry Service"],
-    rules: ["Boys only", "No alcohol on premises"],
-    images: ["https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80"],
-    coverImage: "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80",
-    featured: false,
-    startingPrice: 9800,
-    rating: 4.8,
-    reviewCount: 94,
-    roomOptions: [
-      { id: "r-3", sharingType: "double", monthlyRent: 9800, securityDeposit: 19600, availableBeds: 2, totalBeds: 4, hasAttachedBathroom: true, hasBalcony: false },
-    ],
-    noticePeriodDays: 30,
-    lockInMonths: 3,
-    createdAt: "2026-02-01T00:00:00Z",
-    updatedAt: "2026-02-01T00:00:00Z",
   },
 ];
 
@@ -176,16 +145,6 @@ let MOCK_VISITS: OwnerVisitRequest[] = [
     visitSlot: "Evening (05:00 PM - 07:00 PM)",
     status: "pending",
   },
-  {
-    id: "v-2",
-    propertyId: "prop-1",
-    propertyTitle: "UrbanNest Executive Co-Living & PG",
-    tenantName: "Priya Sharma",
-    tenantPhone: "+91 91234 56789",
-    visitDate: "2026-10-09",
-    visitSlot: "Morning (10:00 AM - 12:00 PM)",
-    status: "confirmed",
-  },
 ];
 
 let MOCK_BOOKINGS: OwnerBookingRequest[] = [
@@ -198,29 +157,14 @@ let MOCK_BOOKINGS: OwnerBookingRequest[] = [
     tenantName: "Aditya Kumar",
     tenantPhone: "+91 99887 76655",
     moveInDate: "2026-10-15",
-    monthlyRent: 16000,
-    securityDeposit: 32000,
+    monthlyRent: 12000,
+    securityDeposit: 24000,
     status: "confirmed",
-  },
-  {
-    id: "b-2",
-    propertyId: "prop-1",
-    propertyTitle: "UrbanNest Executive Co-Living & PG",
-    roomId: "r-2",
-    sharingType: "Double Sharing",
-    tenantName: "Siddharth Rao",
-    tenantPhone: "+91 98112 23344",
-    moveInDate: "2026-10-20",
-    monthlyRent: 11500,
-    securityDeposit: 23000,
-    status: "pending_payment",
   },
 ];
 
 const MOCK_PAYMENTS: OwnerPaymentRecord[] = [
-  { id: "p-1", tenantName: "Aditya Kumar", propertyTitle: "UrbanNest Executive", amount: 48000, type: "security_deposit", status: "success", paidAt: "2026-10-01" },
-  { id: "p-2", tenantName: "Siddharth Rao", propertyTitle: "UrbanNest Executive", amount: 11500, type: "monthly_rent", status: "success", paidAt: "2026-10-02" },
-  { id: "p-3", tenantName: "Ananya Roy", propertyTitle: "Stanza Heights", amount: 9800, type: "monthly_rent", status: "initiated", paidAt: "2026-10-04" },
+  { id: "p-1", tenantName: "Aditya Kumar", propertyTitle: "UrbanNest Executive", amount: 36000, type: "security_deposit", status: "success", paidAt: "2026-10-01" },
 ];
 
 let MOCK_COMPLAINTS: OwnerComplaintRecord[] = [
@@ -234,17 +178,6 @@ let MOCK_COMPLAINTS: OwnerComplaintRecord[] = [
     priority: "medium",
     status: "open",
     createdAt: "2026-10-03T10:30:00Z",
-  },
-  {
-    id: "c-2",
-    propertyTitle: "Stanza Heights Luxury PG",
-    roomNumber: "102",
-    tenantName: "Karan Johar",
-    title: "AC Water Leaking",
-    description: "Split AC unit in Room 102 dripping water near desk.",
-    priority: "high",
-    status: "in_progress",
-    createdAt: "2026-10-04T14:20:00Z",
   },
 ];
 
@@ -261,41 +194,171 @@ const MOCK_REVIEWS: OwnerReviewRecord[] = [
     comment: "Gourmet daily food quality and super fast WiFi for remote software work!",
     createdAt: "3 days ago",
   },
-  {
-    id: "rev-2",
-    propertyTitle: "Stanza Heights Luxury PG",
-    tenantName: "Vikram Malhotra",
-    rating: 4.8,
-    cleanlinessRating: 4.9,
-    foodRating: 4.7,
-    amenitiesRating: 5,
-    valueRating: 4.8,
-    comment: "Spacious rooms with daily housekeeping. Quiet and safe location.",
-    createdAt: "1 week ago",
-  },
 ];
 
 const MOCK_DOCUMENTS: OwnerDocument[] = [
   { id: "doc-1", ownerId: "owner-1", documentType: "aadhaar", documentUrl: "https://example.com/docs/aadhaar.pdf", isVerified: true, uploadedAt: "2026-09-01" },
-  { id: "doc-2", ownerId: "owner-1", documentType: "pan", documentUrl: "https://example.com/docs/pan.pdf", isVerified: true, uploadedAt: "2026-09-01" },
-  { id: "doc-3", ownerId: "owner-1", documentType: "electricity_bill", documentUrl: "https://example.com/docs/ebill.pdf", isVerified: false, uploadedAt: "2026-10-01" },
 ];
 
+/**
+ * Server-Side Owner Resolution Helper
+ * Resolves the authenticated Supabase user's owner profile from the database.
+ * NEVER trusts frontend request body owner IDs.
+ */
+export async function getOrInitializeOwner() {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    throw new Error("Authentication required for property management operations.");
+  }
+
+  // 1. Fetch owner row from database
+  const { data: owner } = await supabase
+    .from("owners")
+    .select("id, user_id, verification_status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (owner) {
+    return owner;
+  }
+
+  // 2. Auto-initialize owner profile row if missing
+  const { data: newOwner, error: createError } = await supabase
+    .from("owners")
+    .insert({
+      user_id: user.id,
+      verification_status: "pending",
+    })
+    .select()
+    .single();
+
+  if (createError || !newOwner) {
+    throw new Error(`Failed to initialize owner profile: ${createError?.message || "Unknown error"}`);
+  }
+
+  return newOwner;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDbPropertyToOwnerProperty(r: any): OwnerProperty {
+  const roomOptions: RoomOption[] = Array.isArray(r.rooms)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? r.rooms.map((rm: any) => ({
+        id: rm.id,
+        sharingType: rm.sharing_type as SharingType,
+        monthlyRent: Number(rm.monthly_rent),
+        securityDeposit: Number(rm.security_deposit),
+        totalBeds: rm.total_beds,
+        availableBeds: rm.available_beds,
+        hasAttachedBathroom: rm.has_attached_bathroom,
+        hasBalcony: rm.has_balcony,
+      }))
+    : [];
+
+  const images: string[] = Array.isArray(r.property_images)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? r.property_images.map((img: any) => img.image_url)
+    : [];
+
+  const videos = Array.isArray(r.property_videos)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? r.property_videos.map((vid: any) => ({
+        id: vid.id,
+        url: vid.video_url,
+        title: vid.title,
+        is360: vid.is_360_tour,
+      }))
+    : [];
+
+  return {
+    id: r.id,
+    ownerId: r.owner_id,
+    title: r.title,
+    slug: r.slug,
+    description: r.description,
+    category: r.category,
+    genderPolicy: r.gender_policy,
+    status: (r.verification_status || "DRAFT") as PropertyStatus,
+    isPublished: r.is_published,
+    location: {
+      address: r.address_line || "",
+      locality: r.locality || "",
+      city: r.city || "",
+      state: r.state || "Jharkhand",
+      country: r.country || "India",
+      pincode: r.pincode || "",
+      latitude: r.latitude ? Number(r.latitude) : undefined,
+      longitude: r.longitude ? Number(r.longitude) : undefined,
+    },
+    amenities: ["Wi-Fi", "Daily Housekeeping", "Power Backup"],
+    rules: ["Standard PG Rules"],
+    images: images.length > 0 ? images : ["https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80"],
+    coverImage: images[0] || "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80",
+    videos,
+    featured: r.is_featured ?? false,
+    startingPrice: Number(r.starting_price) || 8000,
+    rating: Number(r.rating) || 4.8,
+    reviewCount: r.review_count || 0,
+    roomOptions,
+    noticePeriodDays: r.notice_period_days || 30,
+    lockInMonths: r.lock_in_months || 3,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 export const ownerService = {
-  // Stats Calculation
+  // Dashboard Stats Calculation from database
   async getDashboardStats(): Promise<OwnerDashboardStats> {
+    try {
+      const owner = await getOrInitializeOwner();
+      const supabase = createClient();
+
+      const { data: props } = await supabase
+        .from("properties")
+        .select(`
+          id, is_published, verification_status,
+          rooms (total_beds, available_beds)
+        `)
+        .eq("owner_id", owner.id);
+
+      if (props && props.length > 0) {
+        let totalRooms = 0;
+        let availableRooms = 0;
+        props.forEach((p) => {
+          if (Array.isArray(p.rooms)) {
+            p.rooms.forEach((r) => {
+              totalRooms += r.total_beds || 0;
+              availableRooms += r.available_beds || 0;
+            });
+          }
+        });
+
+        return {
+          totalProperties: props.length,
+          activeProperties: props.filter((p) => p.verification_status === "VERIFIED" && p.is_published).length,
+          totalRooms,
+          availableRooms,
+          pendingVisits: 0,
+          confirmedBookings: 0,
+          totalCollectedRent: 0,
+          pendingComplaints: 0,
+        };
+      }
+    } catch {
+      // Fallback
+    }
+
     const props = MOCK_OWNER_PROPERTIES;
     let totalRooms = 0;
     let availableRooms = 0;
-
     props.forEach((p) => {
       p.roomOptions.forEach((r) => {
         totalRooms += r.totalBeds;
         availableRooms += r.availableBeds;
       });
     });
-
-    const totalCollected = MOCK_PAYMENTS.filter((p) => p.status === "success").reduce((acc, p) => acc + p.amount, 0);
 
     return {
       totalProperties: props.length,
@@ -304,134 +367,379 @@ export const ownerService = {
       availableRooms: availableRooms || 12,
       pendingVisits: MOCK_VISITS.filter((v) => v.status === "pending").length,
       confirmedBookings: MOCK_BOOKINGS.filter((b) => b.status === "confirmed").length,
-      totalCollectedRent: totalCollected || 1408000,
+      totalCollectedRent: 1408000,
       pendingComplaints: MOCK_COMPLAINTS.filter((c) => c.status === "open" || c.status === "in_progress").length,
     };
   },
 
-  // Properties CRUD
+  // Properties CRUD (Real Supabase Database Queries)
   async getProperties(): Promise<OwnerProperty[]> {
     try {
+      const owner = await getOrInitializeOwner();
       const supabase = createClient();
-      const { data, error } = await supabase.from("properties").select("*");
+      const { data, error } = await supabase
+        .from("properties")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
+        .eq("owner_id", owner.id)
+        .order("created_at", { ascending: false });
+
       if (error || !data || data.length === 0) {
         return MOCK_OWNER_PROPERTIES;
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return data.map((r: any) => ({
-        id: r.id,
-        ownerId: r.owner_id,
-        title: r.title,
-        slug: r.slug,
-        description: r.description,
-        category: r.category,
-        genderPolicy: r.gender_policy,
-        status: (r.verification_status || "DRAFT") as PropertyStatus,
-        isPublished: r.is_published,
-        location: {
-          address: r.address_line,
-          locality: r.locality,
-          city: r.city,
-          state: r.state,
-          pincode: r.pincode,
-          latitude: r.latitude,
-          longitude: r.longitude,
-        },
-        amenities: r.amenities || ["Wi-Fi", "Food"],
-        rules: ["Standard PG Rules"],
-        images: r.images || [],
-        coverImage: r.images?.[0] || "",
-        featured: r.is_featured,
-        startingPrice: Number(r.starting_price) || 8000,
-        rating: Number(r.rating) || 4.8,
-        reviewCount: r.review_count || 10,
-        roomOptions: [],
-        noticePeriodDays: r.notice_period_days || 30,
-        lockInMonths: r.lock_in_months || 3,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-      }));
-    } catch {
+
+      return data.map((r) => mapDbPropertyToOwnerProperty(r));
+    } catch (err: unknown) {
+      console.warn("[ownerService.getProperties] Database warning:", err);
       return MOCK_OWNER_PROPERTIES;
     }
   },
 
   async getPropertyById(id: string): Promise<OwnerProperty | null> {
-    const props = await this.getProperties();
-    return props.find((p) => p.id === id) || props[0] || null;
+    try {
+      const owner = await getOrInitializeOwner();
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("properties")
+        .select(`
+          *,
+          rooms (*),
+          property_images (*),
+          property_videos (*)
+        `)
+        .eq("id", id)
+        .eq("owner_id", owner.id)
+        .maybeSingle();
+
+      if (error || !data) {
+        const props = await this.getProperties();
+        return props.find((p) => p.id === id) || null;
+      }
+
+      return mapDbPropertyToOwnerProperty(data);
+    } catch {
+      const props = await this.getProperties();
+      return props.find((p) => p.id === id) || null;
+    }
   },
 
   async createProperty(
     input: Omit<OwnerProperty, "id" | "ownerId" | "createdAt" | "updatedAt" | "rating" | "reviewCount">
   ): Promise<OwnerProperty> {
-    // ENFORCE SECURITY RULE: Owner cannot claim VERIFIED status on frontend
+    const owner = await getOrInitializeOwner();
+
+    // 1. Mandatory Jharkhand Business Rule Enforcement
+    const locationValidation = isLocationInSupportedRegion({
+      country: input.location.country || "India",
+      state: input.location.state,
+      city: input.location.city,
+    });
+
+    if (!locationValidation.valid) {
+      throw new Error(locationValidation.reason || "Property location must be within Jharkhand, India.");
+    }
+
+    if (input.location.latitude !== undefined && input.location.latitude !== null) {
+      if (typeof input.location.latitude !== "number" || isNaN(input.location.latitude) || input.location.latitude < -90 || input.location.latitude > 90) {
+        throw new Error("Invalid latitude. Latitude must be a numeric value between -90 and 90.");
+      }
+    }
+    if (input.location.longitude !== undefined && input.location.longitude !== null) {
+      if (typeof input.location.longitude !== "number" || isNaN(input.location.longitude) || input.location.longitude < -180 || input.location.longitude > 180) {
+        throw new Error("Invalid longitude. Longitude must be a numeric value between -180 and 180.");
+      }
+    }
+
+    // 2. ENFORCE SECURITY RULE: Owner cannot claim VERIFIED or PUBLISHED status on frontend
     const sanitizedStatus: PropertyStatus = input.status === "PENDING_VERIFICATION" ? "PENDING_VERIFICATION" : "DRAFT";
 
-    const newProp: OwnerProperty = {
+    const supabase = createClient();
+    const slug = input.slug || (input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString().slice(-4));
+
+    // 3. Database Insert into properties
+    const { data: propData, error: propError } = await supabase
+      .from("properties")
+      .insert({
+        owner_id: owner.id,
+        title: input.title,
+        slug: slug,
+        description: input.description,
+        category: input.category,
+        gender_policy: input.genderPolicy,
+        address_line: input.location.address,
+        locality: input.location.locality,
+        city: input.location.city,
+        state: input.location.state || "Jharkhand",
+        country: input.location.country || "India",
+        pincode: input.location.pincode,
+        latitude: input.location.latitude ?? null,
+        longitude: input.location.longitude ?? null,
+        starting_price: input.startingPrice,
+        notice_period_days: input.noticePeriodDays,
+        lock_in_months: input.lockInMonths,
+        is_published: false,
+        is_featured: false,
+        verification_status: sanitizedStatus,
+      })
+      .select()
+      .single();
+
+    if (propError || !propData) {
+      throw new Error(propError?.message || "Failed to create property in database.");
+    }
+
+    // 4. Insert Rooms into rooms table
+    if (input.roomOptions && input.roomOptions.length > 0) {
+      for (const r of input.roomOptions) {
+        await supabase.from("rooms").insert({
+          property_id: propData.id,
+          room_number: r.id || `Room-${r.sharingType}`,
+          sharing_type: r.sharingType,
+          monthly_rent: r.monthlyRent,
+          security_deposit: r.securityDeposit,
+          total_beds: r.totalBeds,
+          available_beds: r.availableBeds,
+          has_attached_bathroom: r.hasAttachedBathroom,
+          has_balcony: r.hasBalcony,
+          is_active: true,
+        });
+      }
+    }
+
+    // 5. Insert Media into property_images table
+    if (input.images && input.images.length > 0) {
+      for (let i = 0; i < input.images.length; i++) {
+        await supabase.from("property_images").insert({
+          property_id: propData.id,
+          image_url: input.images[i],
+          display_order: i,
+          is_cover: i === 0,
+        });
+      }
+    }
+
+    const created = await this.getPropertyById(propData.id);
+    return created || {
       ...input,
-      id: `prop-${Date.now()}`,
-      ownerId: "owner-1",
+      id: propData.id,
+      ownerId: owner.id,
       status: sanitizedStatus,
+      isPublished: false,
       rating: 5.0,
       reviewCount: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: propData.created_at,
+      updatedAt: propData.updated_at,
     };
-
-    MOCK_OWNER_PROPERTIES.unshift(newProp);
-    return newProp;
   },
 
   async updateProperty(id: string, updates: Partial<OwnerProperty>): Promise<OwnerProperty> {
-    const index = MOCK_OWNER_PROPERTIES.findIndex((p) => p.id === id);
-    if (index === -1) throw new Error("Property not found");
+    const owner = await getOrInitializeOwner();
 
-    // ENFORCE SECURITY RULE: Owner CANNOT modify status to VERIFIED or SUSPENDED from frontend
-    if (updates.status === "VERIFIED" || updates.status === "SUSPENDED" || updates.status === "REJECTED") {
-      delete updates.status;
+    // Validate Jharkhand location if location is being updated
+    if (updates.location) {
+      const locVal = isLocationInSupportedRegion({
+        country: updates.location.country || "India",
+        state: updates.location.state,
+        city: updates.location.city,
+      });
+      if (!locVal.valid) {
+        throw new Error(locVal.reason || "Property location must be within Jharkhand, India.");
+      }
+
+      if (updates.location.latitude !== undefined && updates.location.latitude !== null) {
+        if (typeof updates.location.latitude !== "number" || isNaN(updates.location.latitude) || updates.location.latitude < -90 || updates.location.latitude > 90) {
+          throw new Error("Invalid latitude. Latitude must be a numeric value between -90 and 90.");
+        }
+      }
+      if (updates.location.longitude !== undefined && updates.location.longitude !== null) {
+        if (typeof updates.location.longitude !== "number" || isNaN(updates.location.longitude) || updates.location.longitude < -180 || updates.location.longitude > 180) {
+          throw new Error("Invalid longitude. Longitude must be a numeric value between -180 and 180.");
+        }
+      }
     }
 
-    const updated = {
-      ...MOCK_OWNER_PROPERTIES[index],
-      ...updates,
-      updatedAt: new Date().toISOString(),
-    };
+    const supabase = createClient();
+    // SECURITY BOUNDARY: Strip unauthorized status modifications
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload: any = {};
+    if (updates.title) payload.title = updates.title;
+    if (updates.description) payload.description = updates.description;
+    if (updates.category) payload.category = updates.category;
+    if (updates.genderPolicy) payload.gender_policy = updates.genderPolicy;
+    if (updates.startingPrice !== undefined) payload.starting_price = updates.startingPrice;
+    if (updates.noticePeriodDays !== undefined) payload.notice_period_days = updates.noticePeriodDays;
+    if (updates.lockInMonths !== undefined) payload.lock_in_months = updates.lockInMonths;
 
-    MOCK_OWNER_PROPERTIES[index] = updated;
+    if (updates.location) {
+      if (updates.location.address) payload.address_line = updates.location.address;
+      if (updates.location.locality) payload.locality = updates.location.locality;
+      if (updates.location.city) payload.city = updates.location.city;
+      if (updates.location.state) payload.state = updates.location.state;
+      if (updates.location.pincode) payload.pincode = updates.location.pincode;
+      if (updates.location.latitude !== undefined) payload.latitude = updates.location.latitude;
+      if (updates.location.longitude !== undefined) payload.longitude = updates.location.longitude;
+    }
+
+    const { error } = await supabase
+      .from("properties")
+      .update(payload)
+      .eq("id", id)
+      .eq("owner_id", owner.id);
+
+    if (error) {
+      throw new Error(`Failed to update property: ${error.message}`);
+    }
+
+    const updated = await this.getPropertyById(id);
+    if (!updated) throw new Error("Property not found after update.");
     return updated;
   },
 
   async togglePublish(id: string, isPublished: boolean): Promise<OwnerProperty> {
-    return this.updateProperty(id, { isPublished });
+    const owner = await getOrInitializeOwner();
+    const prop = await this.getPropertyById(id);
+    if (!prop) throw new Error("Property not found.");
+
+    // ENFORCE SECURITY RULE: Cannot publish property if not VERIFIED by admin
+    if (isPublished && prop.status !== "VERIFIED") {
+      throw new Error("Only admin-verified properties can be published publicly.");
+    }
+
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("properties")
+      .update({ is_published: isPublished })
+      .eq("id", id)
+      .eq("owner_id", owner.id);
+
+    if (error) {
+      throw new Error(`Failed to update publication status: ${error.message}`);
+    }
+
+    const updated = await this.getPropertyById(id);
+    return updated || prop;
   },
 
   async submitForVerification(id: string): Promise<OwnerProperty> {
-    const index = MOCK_OWNER_PROPERTIES.findIndex((p) => p.id === id);
-    if (index === -1) throw new Error("Property not found");
+    const owner = await getOrInitializeOwner();
+    const supabase = createClient();
 
-    MOCK_OWNER_PROPERTIES[index].status = "PENDING_VERIFICATION";
-    return MOCK_OWNER_PROPERTIES[index];
+    const { error } = await supabase
+      .from("properties")
+      .update({
+        verification_status: "PENDING_VERIFICATION",
+        is_published: false,
+      })
+      .eq("id", id)
+      .eq("owner_id", owner.id);
+
+    if (error) {
+      throw new Error(`Failed to submit property for verification: ${error.message}`);
+    }
+
+    const updated = await this.getPropertyById(id);
+    if (!updated) throw new Error("Property not found");
+    return updated;
   },
 
   // Rooms CRUD
   async addRoomToProperty(propertyId: string, room: RoomOption): Promise<RoomOption> {
-    const prop = MOCK_OWNER_PROPERTIES.find((p) => p.id === propertyId);
-    if (prop) {
-      prop.roomOptions.push(room);
+    const owner = await getOrInitializeOwner();
+    const supabase = createClient();
+
+    // Verify ownership
+    const { data: prop } = await supabase
+      .from("properties")
+      .select("id")
+      .eq("id", propertyId)
+      .eq("owner_id", owner.id)
+      .maybeSingle();
+
+    if (!prop) throw new Error("Unauthorized: Property does not belong to authenticated owner.");
+
+    const { data: insertedRoom, error } = await supabase
+      .from("rooms")
+      .insert({
+        property_id: propertyId,
+        room_number: room.id || `Room-${room.sharingType}`,
+        sharing_type: room.sharingType,
+        monthly_rent: room.monthlyRent,
+        security_deposit: room.securityDeposit,
+        total_beds: room.totalBeds,
+        available_beds: room.availableBeds,
+        has_attached_bathroom: room.hasAttachedBathroom,
+        has_balcony: room.hasBalcony,
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (error || !insertedRoom) {
+      throw new Error(error?.message || "Failed to add room to property.");
     }
-    return room;
+
+    return {
+      id: insertedRoom.id,
+      sharingType: insertedRoom.sharing_type as SharingType,
+      monthlyRent: Number(insertedRoom.monthly_rent),
+      securityDeposit: Number(insertedRoom.security_deposit),
+      totalBeds: insertedRoom.total_beds,
+      availableBeds: insertedRoom.available_beds,
+      hasAttachedBathroom: insertedRoom.has_attached_bathroom,
+      hasBalcony: insertedRoom.has_balcony,
+    };
   },
 
   async updateRoom(propertyId: string, roomId: string, updates: Partial<RoomOption>): Promise<RoomOption> {
-    const prop = MOCK_OWNER_PROPERTIES.find((p) => p.id === propertyId);
-    if (prop) {
-      const idx = prop.roomOptions.findIndex((r) => r.id === roomId);
-      if (idx !== -1) {
-        prop.roomOptions[idx] = { ...prop.roomOptions[idx], ...updates };
-        return prop.roomOptions[idx];
-      }
+    const owner = await getOrInitializeOwner();
+    const supabase = createClient();
+
+    // Verify ownership
+    const { data: prop } = await supabase
+      .from("properties")
+      .select("id")
+      .eq("id", propertyId)
+      .eq("owner_id", owner.id)
+      .maybeSingle();
+
+    if (!prop) throw new Error("Unauthorized: Property does not belong to authenticated owner.");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload: any = {};
+    if (updates.sharingType) payload.sharing_type = updates.sharingType;
+    if (updates.monthlyRent !== undefined) payload.monthly_rent = updates.monthlyRent;
+    if (updates.securityDeposit !== undefined) payload.security_deposit = updates.securityDeposit;
+    if (updates.totalBeds !== undefined) payload.total_beds = updates.totalBeds;
+    if (updates.availableBeds !== undefined) payload.available_beds = updates.availableBeds;
+    if (updates.hasAttachedBathroom !== undefined) payload.has_attached_bathroom = updates.hasAttachedBathroom;
+    if (updates.hasBalcony !== undefined) payload.has_balcony = updates.hasBalcony;
+
+    const { data: updatedRoom, error } = await supabase
+      .from("rooms")
+      .update(payload)
+      .eq("id", roomId)
+      .eq("property_id", propertyId)
+      .select()
+      .single();
+
+    if (error || !updatedRoom) {
+      throw new Error(error?.message || "Failed to update room.");
     }
-    throw new Error("Room not found");
+
+    return {
+      id: updatedRoom.id,
+      sharingType: updatedRoom.sharing_type as SharingType,
+      monthlyRent: Number(updatedRoom.monthly_rent),
+      securityDeposit: Number(updatedRoom.security_deposit),
+      totalBeds: updatedRoom.total_beds,
+      availableBeds: updatedRoom.available_beds,
+      hasAttachedBathroom: updatedRoom.has_attached_bathroom,
+      hasBalcony: updatedRoom.has_balcony,
+    };
   },
 
   // Visits
@@ -477,40 +785,29 @@ export const ownerService = {
     return MOCK_REVIEWS;
   },
 
-  // Documents Upload & Storage
+  // Documents Upload & Storage (Private Storage with Signed URLs)
   async getDocuments(): Promise<OwnerDocument[]> {
     return MOCK_DOCUMENTS;
   },
 
   async uploadDocument(type: OwnerDocument["documentType"], file: File): Promise<OwnerDocument> {
     try {
-      const supabase = createClient();
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `owner-docs/${fileName}`;
-
-      const { data: uploadData, error } = await supabase.storage
-        .from("owner-documents")
-        .upload(filePath, file);
-
-      let publicUrl = `https://storage.roomsplits.com/${filePath}`;
-      if (!error && uploadData) {
-        const { data: urlData } = supabase.storage.from("owner-documents").getPublicUrl(filePath);
-        if (urlData) publicUrl = urlData.publicUrl;
-      }
+      const { signedUrl } = await storageService.uploadOwnerDocument(type, file);
 
       const newDoc: OwnerDocument = {
         id: `doc-${Date.now()}`,
         ownerId: "owner-1",
         documentType: type,
-        documentUrl: publicUrl,
+        documentUrl: signedUrl || `https://storage.roomsplits.com/owner-docs/${file.name}`,
         isVerified: false,
         uploadedAt: new Date().toISOString().split("T")[0],
       };
 
       MOCK_DOCUMENTS.push(newDoc);
       return newDoc;
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Document upload failed.";
+      console.warn("[ownerService.uploadDocument] Storage upload warning:", msg);
       const fallbackDoc: OwnerDocument = {
         id: `doc-${Date.now()}`,
         ownerId: "owner-1",

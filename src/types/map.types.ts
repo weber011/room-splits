@@ -1,6 +1,6 @@
 export interface PropertyLocationCoordinates {
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   formatted_address: string;
   city: string;
   state: string;

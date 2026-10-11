@@ -47,21 +47,20 @@ export class PropertySearchService {
       }
 
       // 3. Property Type / Category
-      if (
-        filters.propertyType &&
-        filters.propertyType !== "ALL" &&
-        p.category.toUpperCase() !== filters.propertyType.toUpperCase()
-      ) {
-        return false;
+      if (filters.propertyType && filters.propertyType !== "ALL") {
+        const cat = p.category.toLowerCase();
+        const reqCat = filters.propertyType.toLowerCase();
+        if (reqCat === "apartment" && cat !== "flat" && cat !== "coliving") return false;
+        if (reqCat !== "apartment" && cat !== reqCat) return false;
       }
 
       // 4. Gender Preference
-      if (
-        filters.genderPreference &&
-        filters.genderPreference !== "ALL" &&
-        p.genderPolicy.toUpperCase() !== filters.genderPreference.toUpperCase()
-      ) {
-        return false;
+      if (filters.genderPreference && filters.genderPreference !== "ALL") {
+        const gen = p.genderPolicy.toLowerCase();
+        const reqGen = filters.genderPreference.toLowerCase();
+        if (reqGen === "male" && gen !== "boys" && gen !== "unisex") return false;
+        if (reqGen === "female" && gen !== "girls" && gen !== "unisex") return false;
+        if (reqGen === "unisex" && gen !== "unisex") return false;
       }
 
       // 5. Min Rent & Max Rent

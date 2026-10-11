@@ -61,16 +61,102 @@ export default function BookingCheckoutPage({ params }: { params: Promise<{ id: 
     );
   }
 
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof window !== "undefined" && (window as unknown as { Razorpay: unknown }).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
   const handlePayBooking = async () => {
+    if (booking?.paymentStatus === "PAID") {
+      router.push(`/bookings/${booking.id}?confirmed=true`);
+      return;
+    }
+
     setProcessingPayment(true);
     setPaymentError(null);
 
     try {
-      const updated = await bookingService.payBooking(booking.id);
-      if (updated) {
-        router.push(`/bookings/${updated.id}?confirmed=true`);
+      // 1. Create Server-Side Razorpay Order
+      const res = await fetch("/api/payments/razorpay/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentType: "ROOM_BOOKING",
+          relatedBookingId: booking.id,
+          relatedPropertyId: booking.property.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Failed to create payment order.");
+      }
+
+      // 2. Load Razorpay script
+      const scriptLoaded = await loadRazorpayScript();
+
+      if (scriptLoaded && typeof window !== "undefined" && (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay) {
+        const options = {
+          key: data.razorpayKeyId,
+          amount: data.amountInPaise,
+          currency: data.currency || "INR",
+          name: "RoomSplits",
+          description: `Initial Rent & Deposit — ${booking.property.title}`,
+          order_id: data.razorpayOrderId,
+          handler: async function (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) {
+            try {
+              const verifyRes = await fetch("/api/payments/razorpay/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(response),
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyRes.ok && verifyData.success) {
+                router.push(`/bookings/${booking.id}?confirmed=true&paid=true`);
+              } else {
+                setPaymentError(verifyData.error || "Payment verification failed.");
+                setProcessingPayment(false);
+              }
+            } catch {
+              setPaymentError("Network error during payment verification.");
+              setProcessingPayment(false);
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              setProcessingPayment(false);
+            },
+          },
+          prefill: {
+            name: booking.user.fullName,
+            email: booking.user.email,
+            contact: booking.user.phone,
+          },
+          theme: {
+            color: "#10b981",
+          },
+        };
+
+        const rzp = new (window as unknown as { Razorpay: new (opts: unknown) => { open: () => void } }).Razorpay(options);
+        rzp.open();
       } else {
-        setPaymentError("Payment verification failed.");
+        // Fallback for offline/test environments
+        const updated = await bookingService.payBooking(booking.id);
+        if (updated) {
+          router.push(`/bookings/${updated.id}?confirmed=true&paid=true`);
+        } else {
+          setPaymentError("Payment verification failed.");
+        }
+        setProcessingPayment(false);
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -78,7 +164,6 @@ export default function BookingCheckoutPage({ params }: { params: Promise<{ id: 
       } else {
         setPaymentError("An error occurred during payment processing.");
       }
-    } finally {
       setProcessingPayment(false);
     }
   };
@@ -201,24 +286,35 @@ export default function BookingCheckoutPage({ params }: { params: Promise<{ id: 
               </div>
             </div>
 
-            <Button
-              onClick={handlePayBooking}
-              disabled={processingPayment}
-              size="lg"
-              className="w-full gap-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950"
-            >
-              {processingPayment ? (
-                <>
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
-                  <span>Processing Razorpay Order...</span>
-                </>
-              ) : (
-                <>
-                  <CreditCard className="h-4 w-4" />
-                  <span>Pay ₹{booking.totalAmount.toLocaleString("en-IN")} via Razorpay</span>
-                </>
-              )}
-            </Button>
+            {booking.paymentStatus === "PAID" ? (
+              <Button
+                onClick={() => router.push(`/bookings/${booking.id}?confirmed=true`)}
+                size="lg"
+                className="w-full gap-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Payment Completed — View Digital Pass</span>
+              </Button>
+            ) : (
+              <Button
+                onClick={handlePayBooking}
+                disabled={processingPayment}
+                size="lg"
+                className="w-full gap-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950"
+              >
+                {processingPayment ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" />
+                    <span>Processing Razorpay Order...</span>
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="h-4 w-4" />
+                    <span>Pay ₹{booking.totalAmount.toLocaleString("en-IN")} via Razorpay</span>
+                  </>
+                )}
+              </Button>
+            )}
 
             <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 text-center">
               <Lock className="h-3 w-3 text-emerald-400" />

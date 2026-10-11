@@ -50,11 +50,23 @@ export default function OwnerVisitsPage() {
     loadVisits();
   };
 
+  const [ownerNote, setOwnerNote] = useState("");
+  const todayStr = new Date().toISOString().split("T")[0];
+
   const handleConfirmProposeTime = async () => {
-    if (!proposeVisitId || !proposedDate) return;
-    await visitService.ownerProposeTime(proposeVisitId, proposedDate, proposedTime);
-    setProposeVisitId(null);
-    loadVisits();
+    if (!proposeVisitId || !proposedDate) {
+      alert("Please select a valid proposed date.");
+      return;
+    }
+    try {
+      await visitService.ownerProposeTime(proposeVisitId, proposedDate, proposedTime, ownerNote.trim() || undefined);
+      setProposeVisitId(null);
+      setOwnerNote("");
+      await loadVisits();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to send proposal.";
+      alert(msg);
+    }
   };
 
   const filteredVisits = visits.filter((v) => {
@@ -233,6 +245,7 @@ export default function OwnerVisitsPage() {
                   <label className="text-xs text-slate-300 font-semibold">Proposed Date</label>
                   <input
                     type="date"
+                    min={todayStr}
                     value={proposedDate}
                     onChange={(e) => setProposedDate(e.target.value)}
                     className="w-full h-10 rounded-xl bg-slate-950 border border-slate-800 px-3 text-sm text-slate-100 outline-none"
@@ -249,6 +262,16 @@ export default function OwnerVisitsPage() {
                     <option value="Afternoon (02:00 PM - 04:00 PM)">Afternoon (02:00 PM - 04:00 PM)</option>
                     <option value="Evening (05:00 PM - 07:00 PM)">Evening (05:00 PM - 07:00 PM)</option>
                   </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-300 font-semibold">Note / Message to Student (Optional)</label>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Host is available in the evening slot."
+                    value={ownerNote}
+                    onChange={(e) => setOwnerNote(e.target.value)}
+                    className="w-full rounded-xl bg-slate-950 border border-slate-800 p-2 text-xs text-slate-100 outline-none"
+                  />
                 </div>
               </div>
 

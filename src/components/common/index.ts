@@ -22,3 +22,4 @@ export * from "./VisitScheduleWidget";
 export * from "./PropertyMap";
 export * from "./LocationSearch";
 export * from "./NotificationBell";
+export * from "./PropertyUnlockButton";

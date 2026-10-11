@@ -58,11 +58,16 @@ export default function OwnerRoomsPage() {
       hasBalcony,
     };
 
-    await ownerService.addRoomToProperty(activeProperty.id, newRoom);
-    await loadData();
-    setIsAddModalOpen(false);
-    setRoomNumber("");
-    alert("Room created successfully!");
+    try {
+      await ownerService.addRoomToProperty(activeProperty.id, newRoom);
+      await loadData();
+      setIsAddModalOpen(false);
+      setRoomNumber("");
+      alert("Room created successfully!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create room.";
+      alert(msg);
+    }
   };
 
   return (

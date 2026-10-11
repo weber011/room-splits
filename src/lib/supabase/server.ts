@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { env } from "@/config/env";
 
 interface CookieToSet {
   name: string;
@@ -9,14 +10,15 @@ interface CookieToSet {
 
 /**
  * Creates a server-side Supabase client for Server Components, Actions, and Route Handlers
+ * Integrates Next.js 15 async cookie management via @supabase/ssr
  */
 export async function createClient() {
   const cookieStore = await cookies();
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
+  const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const supabaseKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "placeholder-anon-key";
 
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -28,7 +30,7 @@ export async function createClient() {
           );
         } catch {
           // The `setAll` method was called from a Server Component.
-          // This can be ignored if you have middleware refreshing user sessions.
+          // Ignored if middleware refreshes user sessions.
         }
       },
     },

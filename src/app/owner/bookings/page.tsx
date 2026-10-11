@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { bookingService } from "@/services/booking.service";
 import { checkoutService } from "@/services/checkout.service";
+import { stayService } from "@/services/stay.service";
 import { Booking } from "@/types/booking.types";
 import { CheckoutRecord, DeductionCategory } from "@/types/checkout.types";
 import { DashboardSidebar } from "@/components/common/DashboardSidebar";
@@ -62,8 +63,8 @@ export default function OwnerBookingsPage() {
   }, []);
 
   const handleCompleteMoveIn = async (id: string) => {
-    await bookingService.completeBooking(id);
-    loadData();
+    await stayService.confirmMoveIn({ bookingId: id });
+    await loadData();
   };
 
   const handleAddDeductionRow = () => {

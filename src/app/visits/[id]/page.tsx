@@ -86,7 +86,7 @@ function VisitPassDetailsContent({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  const visibility = computeVisitPassVisibility(visitPass.status, visitPass.paymentStatus);
+  const visibility = computeVisitPassVisibility(visitPass.status, true);
 
   const handleReschedule = async () => {
     if (!newDate) return;

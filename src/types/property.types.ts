@@ -7,6 +7,7 @@ export interface PropertyLocation {
   locality: string;
   city: string;
   state: string;
+  country?: string;
   pincode: string;
   latitude?: number;
   longitude?: number;
@@ -35,10 +36,15 @@ export interface PropertyUnlockRecord {
   id: string;
   userId: string;
   propertyId: string;
+  paymentId?: string;
+  amount: number;
+  amountPaid?: number; // Backward compatibility alias
+  currency: string; // "INR"
+  status: "ACTIVE" | "EXPIRED" | "REFUNDED";
   unlockedAt: string;
-  amountPaid: number;
+  createdAt: string;
+  updatedAt: string;
   paymentType: "PROPERTY_UNLOCK" | "VISIT_PASS";
-  status: "ACTIVE" | "EXPIRED";
   transactionId?: string;
 }
 

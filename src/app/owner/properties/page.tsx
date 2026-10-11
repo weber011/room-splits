@@ -28,13 +28,24 @@ export default function OwnerPropertiesPage() {
   }, []);
 
   const handleTogglePublish = async (id: string, currentPublished: boolean) => {
-    await ownerService.togglePublish(id, !currentPublished);
-    loadProperties();
+    try {
+      await ownerService.togglePublish(id, !currentPublished);
+      loadProperties();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to toggle publication status.";
+      alert(msg);
+    }
   };
 
   const handleRequestVerification = async (id: string) => {
-    await ownerService.submitForVerification(id);
-    loadProperties();
+    try {
+      await ownerService.submitForVerification(id);
+      alert("Property submitted for Admin Verification.");
+      loadProperties();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to submit verification.";
+      alert(msg);
+    }
   };
 
   const filteredProperties = properties.filter((p) => {

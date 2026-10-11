@@ -3,6 +3,7 @@
 import { useEffect, useState, use, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { bookingService } from "@/services/booking.service";
+import { stayService } from "@/services/stay.service";
 import { Booking } from "@/types/booking.types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -21,15 +22,15 @@ import {
   AlertTriangle,
   User,
   Key,
-  QrCode
+  CreditCard
 } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
 
 function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const searchParams = useSearchParams();
   const justConfirmed = searchParams.get("confirmed") === "true";
+  const justPaid = searchParams.get("paid") === "true";
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,12 +38,26 @@ function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) 
   const [cancelReason, setCancelReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Move-in action states
+  const [movingIn, setMovingIn] = useState(false);
+  const [moveInMessage, setMoveInMessage] = useState<string | null>(null);
+  const [moveInError, setMoveInError] = useState<string | null>(null);
+  const [isMovedIn, setIsMovedIn] = useState(false);
+
   useEffect(() => {
     async function loadBooking() {
       try {
         const bk = await bookingService.getBookingById(resolvedParams.id);
         if (bk) {
           setBooking(bk);
+          if (bk.bookingStatus === "COMPLETED" || (bk.bookingStatus as string) === "MOVED_IN") {
+            setIsMovedIn(true);
+          }
+          // Also check if a stay record already exists
+          const existingStay = await stayService.getStayByBookingId(bk.id);
+          if (existingStay && (existingStay.status === "ACTIVE" || (existingStay.status as string) === "active")) {
+            setIsMovedIn(true);
+          }
         }
       } catch (err) {
         console.error("Failed to load booking details", err);
@@ -94,76 +109,231 @@ function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) 
     }
   };
 
-  const getStatusBadge = () => {
-    switch (booking.bookingStatus) {
-      case "CONFIRMED":
-        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">CONFIRMED</Badge>;
-      case "PAYMENT_PENDING":
-        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30">PAYMENT PENDING</Badge>;
-      case "COMPLETED":
-        return <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30">COMPLETED / MOVED IN</Badge>;
-      case "CANCELLED":
-        return <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/30">CANCELLED</Badge>;
-      default:
-        return <Badge variant="outline">{booking.bookingStatus}</Badge>;
+  const handleConfirmMoveIn = async () => {
+    setMovingIn(true);
+    setMoveInError(null);
+    setMoveInMessage(null);
+
+    try {
+      // 1. Try server API route first
+      const res = await fetch("/api/stays/move-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: booking.id }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        setIsMovedIn(true);
+        setMoveInMessage(data.message || "Move-in confirmed! Your stay is now active.");
+        const updated = await bookingService.getBookingById(booking.id);
+        if (updated) setBooking(updated);
+      } else {
+        // Direct service fallback (e.g. standalone test mode or dev offline mode)
+        const directRes = await stayService.confirmMoveIn({ bookingId: booking.id });
+        if (directRes.success) {
+          setIsMovedIn(true);
+          setMoveInMessage(directRes.message);
+          const updated = await bookingService.getBookingById(booking.id);
+          if (updated) setBooking(updated);
+        } else {
+          setMoveInError(data.error || directRes.message || "Failed to confirm move-in.");
+        }
+      }
+    } catch {
+      // Fallback directly via service
+      const directRes = await stayService.confirmMoveIn({ bookingId: booking.id });
+      if (directRes.success) {
+        setIsMovedIn(true);
+        setMoveInMessage(directRes.message);
+        const updated = await bookingService.getBookingById(booking.id);
+        if (updated) setBooking(updated);
+      } else {
+        setMoveInError(directRes.message || "An error occurred while confirming move-in.");
+      }
+    } finally {
+      setMovingIn(false);
     }
   };
 
+  const getStatusBadge = () => {
+    if (isMovedIn) {
+      return <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40">ACTIVE STAY / MOVED IN</Badge>;
+    }
+    switch (booking.bookingStatus) {
+      case "CONFIRMED":
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">CONFIRMED</Badge>;
+      case "COMPLETED":
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">MOVED IN</Badge>;
+      case "PAYMENT_PENDING":
+        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30">PENDING PAYMENT</Badge>;
+      case "CANCELLED":
+        return <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/30">CANCELLED</Badge>;
+      default:
+        return <Badge variant="secondary">{booking.bookingStatus}</Badge>;
+    }
+  };
+
+  const isPaid = booking.paymentStatus === "PAID";
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 py-10 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto space-y-8">
-      {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+      {/* Top Bar Navigation */}
+      <div className="flex items-center justify-between">
         <Link href="/bookings" className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors">
           <ArrowLeft className="h-4 w-4" />
-          <span>My Room Reservations</span>
+          <span>Back to My Bookings</span>
         </Link>
-        <span className="text-xs text-slate-500 font-mono">Code: {booking.bookingCode}</span>
+        <div className="flex items-center gap-2">
+          {getStatusBadge()}
+        </div>
       </div>
 
+      {/* Confirmation & Notification Banners */}
       {justConfirmed && (
-        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3 text-emerald-300 text-sm">
+        <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-2xl flex items-center gap-3 text-emerald-300 text-sm">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
           <div>
-            <strong className="block font-bold">Room Reservation Confirmed!</strong>
-            <span className="text-xs opacity-90">Your room and bed have been locked atomically. Move-in pass details and property manager contacts are ready below.</span>
+            <strong className="block text-white">Room Reservation Created Successfully!</strong>
+            <span className="text-xs text-emerald-400/90">
+              {isPaid
+                ? "Your booking is paid. Complete move-in when ready to activate your stay."
+                : "Please proceed with initial Rent + Security Deposit payment to secure your stay."}
+            </span>
           </div>
         </div>
       )}
 
-      {/* Main Digital Ticket Card */}
-      <Card className="border-slate-800 bg-slate-900/90 overflow-hidden">
-        {/* Ticket Header Banner */}
-        <div className="bg-gradient-to-r from-emerald-900/40 via-slate-900 to-indigo-900/40 p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
-              <Key className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white">Digital Move-In Pass</h2>
-                {getStatusBadge()}
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">Present this confirmation pass to caretaker upon key handover.</p>
-            </div>
+      {justPaid && isPaid && !isMovedIn && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-2xl flex items-center gap-3 text-emerald-300 text-sm">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+          <div>
+            <strong className="block text-white">Rent & Security Deposit Payment Captured!</strong>
+            <span className="text-xs text-emerald-400/90">
+              Your room is reserved and fully paid. You are now READY FOR MOVE-IN. Click below to activate your residency.
+            </span>
           </div>
+        </div>
+      )}
 
-          <div className="flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 text-xs text-slate-300 font-mono">
-            <QrCode className="h-4 w-4 text-emerald-400" />
-            <span>Pass Code: {booking.bookingCode}</span>
+      {moveInMessage && (
+        <div className="bg-emerald-500/20 border border-emerald-500/40 p-4 rounded-2xl flex items-center justify-between gap-3 text-emerald-200 text-sm">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+            <span>{moveInMessage}</span>
+          </div>
+          <Link href="/my-stay">
+            <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold">
+              Go to Active Stay
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {moveInError && (
+        <div className="bg-rose-500/10 border border-rose-500/30 p-4 rounded-2xl flex items-center gap-3 text-rose-300 text-sm">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-rose-400" />
+          <span>{moveInError}</span>
+        </div>
+      )}
+
+      {/* Main Booking Pass & Key Details */}
+      <Card className="border-slate-800 bg-slate-900/90 p-6 space-y-6">
+        <div className="flex flex-col md:flex-row justify-between gap-4 border-b border-slate-800 pb-6">
+          <div>
+            <span className="text-[11px] font-mono text-emerald-400 uppercase tracking-widest block">
+              OFFICIAL ROOM RESERVATION PASS
+            </span>
+            <h1 className="text-2xl font-bold text-white tracking-tight mt-1">
+              Pass #{booking.bookingCode}
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Booked on {booking.bookingDate} • Tenant: <span className="text-white font-medium">{booking.user.fullName}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="border-slate-700 text-slate-300">
+              Sharing: {booking.room.sharingType}
+            </Badge>
           </div>
         </div>
 
-        {/* Ticket Body */}
-        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Property Info */}
+        {/* PROMPT 38 — MOVE-IN ACTION BANNER FOR PAID BOOKINGS */}
+        {isPaid && !isMovedIn && (
+          <div className="bg-gradient-to-r from-emerald-950/60 to-slate-900 border-2 border-emerald-500/50 p-5 rounded-2xl space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Key className="h-5 w-5 text-emerald-400" />
+                  <h3 className="font-bold text-white text-base">Ready for Move-In</h3>
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">PAYMENT VERIFIED</Badge>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Initial Rent & Security Deposit are paid. Perform move-in confirmation to activate your active residency.
+                </p>
+              </div>
+            </div>
+            <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+              <Button
+                onClick={handleConfirmMoveIn}
+                disabled={movingIn}
+                className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 font-bold text-slate-950 h-11 px-6 shadow-lg shadow-emerald-500/20"
+              >
+                {movingIn ? "Activating Active Stay..." : "Confirm Move-In & Activate Stay"}
+              </Button>
+              <span className="text-[11px] text-slate-400">
+                Move-in Date scheduled for: <strong className="text-white">{booking.moveInDate}</strong>
+              </span>
+            </div>
+          </div>
+        )}
+
+        {isMovedIn && (
+          <div className="bg-emerald-950/40 border border-emerald-500/30 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
+              <div>
+                <strong className="text-white text-sm block">Active Residency Dashboard Available</strong>
+                <span className="text-slate-300">Move-in confirmed. Manage active stay, rent history, roommates, and complaints.</span>
+              </div>
+            </div>
+            <Link href="/my-stay">
+              <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold whitespace-nowrap">
+                Go to /my-stay
+              </Button>
+            </Link>
+          </div>
+        )}
+
+        {!isPaid && booking.bookingStatus !== "CANCELLED" && (
+          <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <CreditCard className="h-5 w-5 text-amber-400 shrink-0" />
+              <div>
+                <strong className="text-white text-sm block">Initial Payment Required</strong>
+                <span className="text-slate-300">Complete Rent + Security Deposit payment to enable Move-In activation.</span>
+              </div>
+            </div>
+            <Link href={`/bookings/checkout/${booking.id}`}>
+              <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold whitespace-nowrap">
+                Pay Rent + Deposit (₹{booking.totalAmount.toLocaleString("en-IN")})
+              </Button>
+            </Link>
+          </div>
+        )}
+
+        {/* Content Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Left 2 Columns */}
           <div className="md:col-span-2 space-y-6">
-            <div className="flex items-start gap-4">
-              <div className="relative h-20 w-24 rounded-xl overflow-hidden bg-slate-950 shrink-0 border border-slate-800">
-                <Image
-                  src={booking.property.coverImage || "https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=800&q=80"}
+            {/* Property Card Summary */}
+            <div className="flex gap-4 items-start p-4 rounded-xl bg-slate-950 border border-slate-800">
+              <div className="relative h-20 w-28 rounded-lg overflow-hidden shrink-0 bg-slate-900">
+                <img
+                  src={booking.property.coverImage}
                   alt={booking.property.title}
-                  fill
-                  className="object-cover"
+                  className="object-cover w-full h-full"
                 />
               </div>
               <div className="space-y-1">
@@ -185,16 +355,16 @@ function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) 
               </div>
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
                 <span className="text-slate-400 flex items-center gap-1 text-[11px]">
-                  <Calendar className="h-3.5 w-3.5 text-emerald-400" /> Target Move-In Date
+                  <Calendar className="h-3.5 w-3.5 text-emerald-400" /> Booking Period
                 </span>
-                <strong className="text-white block text-sm font-bold">{booking.moveInDate}</strong>
+                <strong className="text-white block text-xs font-bold">{booking.moveInDate} &rarr; {booking.moveOutDate}</strong>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <span className="text-slate-400 block text-[11px]">Monthly Rent</span>
+                <span className="text-slate-400 block text-[11px]">Monthly Rent Snapshot</span>
                 <strong className="text-emerald-400 block text-sm font-bold">₹{booking.monthlyRent.toLocaleString("en-IN")} / mo</strong>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <span className="text-slate-400 block text-[11px]">Security Deposit Paid</span>
+                <span className="text-slate-400 block text-[11px]">Security Deposit Snapshot</span>
                 <strong className="text-white block text-sm font-bold">₹{booking.securityDeposit.toLocaleString("en-IN")}</strong>
               </div>
             </div>
@@ -228,13 +398,13 @@ function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) 
               </h5>
               <ol className="list-decimal list-inside space-y-1 text-slate-400 pt-1">
                 <li>Arrive at property address on <strong>{booking.moveInDate}</strong>.</li>
-                <li>Present this Digital Move-In Pass to caretaker at front desk.</li>
+                <li>Present this Digital Move-In Pass or confirm move-in above.</li>
                 <li>Inspect room condition, sign physical check-in log, and receive key fob.</li>
               </ol>
             </div>
           </div>
 
-          {/* Right Column: PDF Receipts & Actions */}
+          {/* Right Column: QR Code & Actions */}
           <div className="space-y-6 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-800 pt-6 md:pt-0 md:pl-6">
             <div className="space-y-4">
               <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 text-center space-y-3">
@@ -250,7 +420,9 @@ function BookingDetailsContent({ params }: { params: Promise<{ id: string }> }) 
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-slate-400">Payment Status:</span>
-                  <strong className="text-emerald-400 font-bold">{booking.paymentStatus}</strong>
+                  <strong className={isPaid ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                    {booking.paymentStatus}
+                  </strong>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Total Paid:</span>

@@ -53,6 +53,7 @@ export interface Booking {
   room: BookingRoom;
   bookingDate: string;
   moveInDate: string;
+  moveOutDate: string;
   monthlyRent: number;
   securityDeposit: number;
   platformCharges: number;
@@ -68,11 +69,16 @@ export interface Booking {
 
 export interface CreateBookingInput {
   userId: string;
-  userName: string;
-  userEmail: string;
-  userPhone: string;
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
   propertyId: string;
   roomId: string;
   moveInDate: string;
+  moveOutDate: string;
+  monthlyRent?: number;
+  securityDeposit?: number;
+  platformCharges?: number;
+  totalAmount?: number;
   notes?: string;
 }

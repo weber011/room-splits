@@ -1,6 +1,8 @@
+import { PLATFORM_SETTINGS } from "./business-rules.config";
+
 export const siteConfig = {
   name: "RoomSplits",
-  description: "Seamless PG, hostel, and room discovery, visit scheduling, booking, and rental management platform.",
+  description: "Seamless PG, hostel, and room discovery, visit scheduling, booking, and rental management platform in Jharkhand.",
   url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   ogImage: "https://roomsplits.com/og.jpg",
   links: {
@@ -12,9 +14,10 @@ export const siteConfig = {
     phone: "+91 1800-ROOM-SPLIT",
   },
   settings: {
-    visitPassFeeAmount: 9,
-    bookingPlatformFeeAmount: 499,
-    lockInMonthsDefault: 3,
+    propertyUnlockPrice: PLATFORM_SETTINGS.PROPERTY_UNLOCK_PRICE,
+    visitPassFeeAmount: PLATFORM_SETTINGS.PROPERTY_UNLOCK_PRICE,
+    bookingPlatformFeeAmount: PLATFORM_SETTINGS.BOOKING_PLATFORM_FEE,
+    lockInMonthsDefault: PLATFORM_SETTINGS.DEFAULT_LOCK_IN_MONTHS,
     platformCommissionPercent: 5,
   },
   navLinks: [

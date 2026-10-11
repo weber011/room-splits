@@ -114,6 +114,7 @@ export default function DesignSystemPage() {
     },
     bookingDate: "2026-10-01",
     moveInDate: "15 Oct 2026",
+    moveOutDate: "15 Jan 2027",
     monthlyRent: 11000,
     securityDeposit: 22000,
     platformCharges: 499,

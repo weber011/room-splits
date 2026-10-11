@@ -3,18 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ownerService, PropertyStatus } from "@/services/owner.service";
+import { storageService } from "@/services/storage.service";
 import { DashboardSidebar } from "@/components/common/DashboardSidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { LocationPicker } from "@/components/maps/LocationPicker";
 import { PropertyCategory, GenderPolicy } from "@/types";
-import { Trash2, ArrowLeft, Shield, Upload, Image as ImageIcon } from "lucide-react";
+import { Trash2, ArrowLeft, Shield, Upload, Image as ImageIcon, Loader2 } from "lucide-react";
 
 export default function NewPropertyPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Form State
   const [title, setTitle] = useState("");
@@ -22,11 +25,13 @@ export default function NewPropertyPage() {
   const [category, setCategory] = useState<PropertyCategory>("coliving");
   const [genderPolicy, setGenderPolicy] = useState<GenderPolicy>("unisex");
   const [address, setAddress] = useState("");
-  const [locality, setLocality] = useState("");
-  const [city, setCity] = useState("Bengaluru");
-  const [state, setState] = useState("Karnataka");
-  const [pincode, setPincode] = useState("");
-  const [startingPrice, setStartingPrice] = useState(10000);
+  const [locality, setLocality] = useState("Lalpur");
+  const [city, setCity] = useState("Ranchi");
+  const [state, setState] = useState("Jharkhand");
+  const [pincode, setPincode] = useState("834001");
+  const [latitude, setLatitude] = useState<number | undefined>(23.3441);
+  const [longitude, setLongitude] = useState<number | undefined>(85.3096);
+  const [startingPrice, setStartingPrice] = useState(8500);
   const [lockInMonths, setLockInMonths] = useState(3);
   const [noticePeriodDays, setNoticePeriodDays] = useState(30);
 
@@ -107,6 +112,22 @@ export default function NewPropertyPage() {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    try {
+      const tempPropId = `temp-${Date.now()}`;
+      const { publicUrl } = await storageService.uploadPropertyMedia(tempPropId, file, "image");
+      setImages((prev) => [...prev, publicUrl]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Image upload failed.";
+      alert(`Image upload error: ${msg}`);
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const handleSubmit = async (targetStatus: PropertyStatus) => {
     if (!title || !description || !address || !locality || !city || !pincode) {
       alert("Please fill in all required property details (Title, Address, City, Pincode).");
@@ -123,13 +144,16 @@ export default function NewPropertyPage() {
         category,
         genderPolicy,
         status: targetStatus === "PENDING_VERIFICATION" ? "PENDING_VERIFICATION" : "DRAFT",
-        isPublished: targetStatus === "PENDING_VERIFICATION",
+        isPublished: false,
         location: {
           address,
           locality,
           city,
           state,
+          country: "India",
           pincode,
+          latitude,
+          longitude,
         },
         amenities,
         rules,
@@ -142,9 +166,11 @@ export default function NewPropertyPage() {
         lockInMonths: Number(lockInMonths),
       });
 
+      alert(targetStatus === "PENDING_VERIFICATION" ? "Property submitted for Admin Verification!" : "Property draft saved successfully!");
       router.push("/owner/properties");
-    } catch {
-      alert("Failed to create property. Please try again.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to create property.";
+      alert(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -236,54 +262,27 @@ export default function NewPropertyPage() {
 
           {/* Location & Address Card */}
           <Card className="border-slate-800 bg-slate-900/80 p-6 space-y-6">
-            <h3 className="text-lg font-bold text-white border-b border-slate-800 pb-3">2. Location & Full Address</h3>
+            <h3 className="text-lg font-bold text-white border-b border-slate-800 pb-3">2. Location & Map Position</h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2 space-y-1">
-                <label className="text-xs text-slate-300 font-semibold">Street / Building Address *</label>
-                <Input
-                  placeholder="e.g. Building 42, 100 Feet Road, Opposite BDA Complex"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs text-slate-300 font-semibold">Locality / Area *</label>
-                <Input
-                  placeholder="e.g. HSR Layout Sector 3"
-                  value={locality}
-                  onChange={(e) => setLocality(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs text-slate-300 font-semibold">City *</label>
-                <Input
-                  placeholder="e.g. Bengaluru"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs text-slate-300 font-semibold">State *</label>
-                <Input
-                  placeholder="e.g. Karnataka"
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs text-slate-300 font-semibold">Pincode *</label>
-                <Input
-                  placeholder="e.g. 560102"
-                  value={pincode}
-                  onChange={(e) => setPincode(e.target.value)}
-                />
-              </div>
-            </div>
+            <LocationPicker
+              address={address}
+              locality={locality}
+              city={city}
+              state={state}
+              country="India"
+              pincode={pincode}
+              latitude={latitude}
+              longitude={longitude}
+              onChange={(loc) => {
+                setAddress(loc.address);
+                setLocality(loc.locality);
+                setCity(loc.city);
+                setState(loc.state);
+                setPincode(loc.pincode);
+                setLatitude(loc.latitude);
+                setLongitude(loc.longitude);
+              }}
+            />
           </Card>
 
           {/* Rent & Policies Card */}
@@ -380,16 +379,21 @@ export default function NewPropertyPage() {
               <span>5. Photos & Video Tours</span>
             </h3>
 
-            {/* Add Image URL */}
+            {/* Add Image File or URL */}
             <div className="space-y-3">
-              <label className="text-xs text-slate-300 font-semibold">Add Property Image URL</label>
-              <div className="flex gap-2">
+              <label className="text-xs text-slate-300 font-semibold">Upload Photo File or Add Image URL</label>
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Input
                   placeholder="https://images.unsplash.com/..."
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
                 />
-                <Button type="button" size="sm" onClick={handleAddImage}>Add Image</Button>
+                <Button type="button" size="sm" onClick={handleAddImage}>Add URL</Button>
+                <label className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white cursor-pointer border border-slate-700">
+                  {isUploadingImage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <span>Upload File</span>
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" disabled={isUploadingImage} />
+                </label>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">

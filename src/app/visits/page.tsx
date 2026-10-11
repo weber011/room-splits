@@ -6,9 +6,8 @@ import { VisitPass } from "@/types/visit.types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Ticket, Calendar, Clock, MapPin, ArrowRight, Plus, RefreshCw, CreditCard } from "lucide-react";
+import { Ticket, Calendar, Clock, MapPin, ArrowRight, Plus, RefreshCw, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
 
 export default function StudentVisitsPage() {
   const [visits, setVisits] = useState<VisitPass[]>([]);
@@ -32,9 +31,29 @@ export default function StudentVisitsPage() {
     loadVisits();
   }, []);
 
+  const handleCancel = async (visitId: string) => {
+    if (!confirm("Are you sure you want to cancel this visit request?")) return;
+    try {
+      await visitService.studentCancelVisit(visitId, "Cancelled by Student");
+      await loadVisits();
+    } catch {
+      alert("Failed to cancel visit request.");
+    }
+  };
+
+  const handleAcceptReschedule = async (visitId: string) => {
+    try {
+      await visitService.acceptRescheduledVisit(visitId);
+      await loadVisits();
+      alert("Rescheduled visit time accepted!");
+    } catch {
+      alert("Failed to accept rescheduled visit time.");
+    }
+  };
+
   const filteredVisits = visits.filter((v) => {
     if (activeTab === "CONFIRMED") return v.status === "CONFIRMED" || v.status === "RESCHEDULED";
-    if (activeTab === "PENDING") return v.status === "PAYMENT_PENDING" || v.paymentStatus === "PENDING";
+    if (activeTab === "PENDING") return v.status === "REQUESTED";
     if (activeTab === "PAST") return v.status === "COMPLETED" || v.status === "CANCELLED" || v.status === "EXPIRED";
     return true;
   });
@@ -42,17 +61,15 @@ export default function StudentVisitsPage() {
   const getStatusBadge = (status: VisitPass["status"]) => {
     switch (status) {
       case "CONFIRMED":
-        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">CONFIRMED</Badge>;
-      case "PAYMENT_PENDING":
-        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30">PAYMENT PENDING</Badge>;
+        return <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">🟢 CONFIRMED</Badge>;
       case "REQUESTED":
-        return <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30">REQUESTED</Badge>;
+        return <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30">🟡 REQUESTED</Badge>;
       case "RESCHEDULED":
-        return <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30">RESCHEDULED</Badge>;
+        return <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30">🔵 RESCHEDULED</Badge>;
       case "COMPLETED":
-        return <Badge className="bg-slate-700 text-slate-300">COMPLETED</Badge>;
+        return <Badge className="bg-indigo-500/10 text-indigo-400 border-indigo-500/30">🟣 COMPLETED</Badge>;
       case "CANCELLED":
-        return <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/30">CANCELLED</Badge>;
+        return <Badge className="bg-rose-500/10 text-rose-400 border-rose-500/30">🔴 CANCELLED</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -65,10 +82,10 @@ export default function StudentVisitsPage() {
         <div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
             <Ticket className="h-8 w-8 text-emerald-400" />
-            <span>My Visit Passes & Tickets</span>
+            <span>My Visit Passes & Tour Requests</span>
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Manage scheduled property tours, access verified digital tickets, and view visit history.
+            Manage scheduled property tours, track owner confirmations, and view visit history.
           </p>
         </div>
 
@@ -80,7 +97,7 @@ export default function StudentVisitsPage() {
           <Link href="/discover">
             <Button size="sm" className="gap-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold">
               <Plus className="h-4 w-4" />
-              Schedule New Visit
+              Explore Properties
             </Button>
           </Link>
         </div>
@@ -99,9 +116,9 @@ export default function StudentVisitsPage() {
             }`}
           >
             {tab === "ALL" && `All Visits (${visits.length})`}
-            {tab === "CONFIRMED" && `Active & Confirmed (${visits.filter((v) => v.status === "CONFIRMED" || v.status === "RESCHEDULED").length})`}
-            {tab === "PENDING" && `Pending Payment (${visits.filter((v) => v.paymentStatus === "PENDING").length})`}
-            {tab === "PAST" && `Past & Cancelled (${visits.filter((v) => v.status === "COMPLETED" || v.status === "CANCELLED").length})`}
+            {tab === "CONFIRMED" && `Confirmed & Rescheduled (${visits.filter((v) => v.status === "CONFIRMED" || v.status === "RESCHEDULED").length})`}
+            {tab === "PENDING" && `Awaiting Confirmation (${visits.filter((v) => v.status === "REQUESTED").length})`}
+            {tab === "PAST" && `Completed / Cancelled (${visits.filter((v) => v.status === "COMPLETED" || v.status === "CANCELLED").length})`}
           </button>
         ))}
       </div>
@@ -130,11 +147,11 @@ export default function StudentVisitsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="relative h-14 w-16 rounded-lg overflow-hidden bg-slate-950 shrink-0 border border-slate-800">
-                      <Image
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
                         src={pass.property?.coverImage || "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80"}
                         alt={pass.property?.title || "Property"}
-                        fill
-                        className="object-cover"
+                        className="w-full h-full object-cover"
                       />
                     </div>
                     <div>
@@ -151,47 +168,71 @@ export default function StudentVisitsPage() {
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80 text-xs">
                   <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-0.5">
                     <span className="text-slate-400 flex items-center gap-1 text-[10px]">
-                      <Calendar className="h-3 w-3 text-emerald-400" /> Date
+                      <Calendar className="h-3 w-3 text-emerald-400" /> Requested Date
                     </span>
                     <strong className="text-white block text-xs">{pass.preferredDate}</strong>
                   </div>
                   <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-0.5">
                     <span className="text-slate-400 flex items-center gap-1 text-[10px]">
-                      <Clock className="h-3 w-3 text-emerald-400" /> Time Slot
+                      <Clock className="h-3 w-3 text-emerald-400" /> Requested Time
                     </span>
                     <strong className="text-white block text-xs truncate">{pass.preferredTime}</strong>
                   </div>
                 </div>
 
-                {pass.paymentStatus === "PENDING" && (
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs">
-                    <span className="text-amber-300">Visit Pass Token Unpaid</span>
-                    <strong className="text-amber-400 font-bold">₹{pass.visitPassAmount}</strong>
+                {/* Rescheduled Notice */}
+                {pass.status === "RESCHEDULED" && pass.ownerProposedDate && (
+                  <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-purple-300 font-bold">
+                      <span>Owner Proposed New Time:</span>
+                      <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/40 text-[10px]">Action Required</Badge>
+                    </div>
+                    <p className="text-purple-200">
+                      📅 {pass.ownerProposedDate} at {pass.ownerProposedTime}
+                    </p>
+                    {pass.ownerMessage && <p className="text-slate-400 text-[11px]">Note: {pass.ownerMessage}</p>}
+                    <Button
+                      size="sm"
+                      onClick={() => handleAcceptReschedule(pass.id)}
+                      className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs gap-1.5"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Accept Proposed Visit Time
+                    </Button>
+                  </div>
+                )}
+
+                {/* Owner Response Message */}
+                {pass.ownerMessage && pass.status !== "RESCHEDULED" && (
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-0.5">
+                    <span className="text-[10px] text-slate-400 font-semibold block">Owner Note:</span>
+                    <p className="text-slate-200 text-xs">{pass.ownerMessage}</p>
                   </div>
                 )}
               </div>
 
               {/* Card Footer Actions */}
               <div className="bg-slate-950/80 p-4 border-t border-slate-800 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-mono text-slate-400">Token: #{pass.id.slice(-6).toUpperCase()}</span>
+                <span className="text-[11px] font-mono text-slate-400">Token: #{pass.passCode || pass.id.slice(-6).toUpperCase()}</span>
 
                 <div className="flex items-center gap-2">
-                  {pass.paymentStatus === "PENDING" ? (
-                    <Link href={`/visits/checkout/${pass.id}`}>
-                      <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs gap-1.5">
-                        <CreditCard className="h-3.5 w-3.5" />
-                        Pay Pass (₹{pass.visitPassAmount})
-                      </Button>
-                    </Link>
-                  ) : (
-                    <Link href={`/visits/${pass.id}`}>
-                      <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs gap-1.5">
-                        <Ticket className="h-3.5 w-3.5" />
-                        View Pass Ticket
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Button>
-                    </Link>
+                  {(pass.status === "REQUESTED" || pass.status === "CONFIRMED" || pass.status === "RESCHEDULED") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleCancel(pass.id)}
+                      className="text-xs text-rose-400 border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-300"
+                    >
+                      Cancel Request
+                    </Button>
                   )}
+                  <Link href={`/visits/${pass.id}`}>
+                    <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs gap-1.5">
+                      <Ticket className="h-3.5 w-3.5" />
+                      View Details
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
                 </div>
               </div>
             </Card>

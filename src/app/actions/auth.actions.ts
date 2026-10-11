@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getAuthenticatedUser } from "@/lib/auth-helpers";
 
 export interface AuthActionResult {
   success: boolean;
@@ -16,20 +17,26 @@ export interface AuthActionResult {
 }
 
 /**
- * Sign Up Server Action
- * Creates user in Supabase Auth & inserts user profile record
+ * Public Student Sign Up Server Action
+ * Creates user in Supabase Auth & inserts corresponding application profile.
+ * PRIVILEGE SECURITY: Default role is strictly STUDENT ('tenant').
+ * Ignores any client attempt to submit role=OWNER or role=ADMIN.
  */
 export async function signUpAction(formData: FormData): Promise<AuthActionResult> {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
   const fullName = formData.get("fullName") as string;
   const phone = formData.get("phone") as string;
-  const requestedRole = (formData.get("role") as string) || "tenant";
-  // PRIVILEGE GUARD: Never allow self-registration as "admin" via public sign-up form
-  const role: "tenant" | "owner" = requestedRole === "owner" ? "owner" : "tenant";
+
+  // STRICT PRIVILEGE GUARD: Public signup ALWAYS creates STUDENT ('tenant') role.
+  const role = "tenant" as const;
 
   if (!email || !password || !fullName) {
     return { success: false, message: "Email, password, and full name are required." };
+  }
+
+  if (password.length < 6) {
+    return { success: false, message: "Password must be at least 6 characters." };
   }
 
   const supabase = await createClient();
@@ -55,7 +62,7 @@ export async function signUpAction(formData: FormData): Promise<AuthActionResult
     return { success: false, message: "User creation failed. Please try again." };
   }
 
-  // 2. Server-side Database Profile Insertion
+  // 2. Insert application profile record in users table
   const { error: profileError } = await supabase.from("users").upsert({
     id: data.user.id,
     email: email,
@@ -66,21 +73,13 @@ export async function signUpAction(formData: FormData): Promise<AuthActionResult
   });
 
   if (profileError) {
-    console.warn("[signUpAction] Profile table insertion warning:", profileError.message);
-  }
-
-  // 3. If owner role, create owner profile row
-  if (role === "owner") {
-    await supabase.from("owners").upsert({
-      user_id: data.user.id,
-      verification_status: "pending",
-    });
+    console.warn("[signUpAction] Profile table insertion log:", profileError.message);
   }
 
   revalidatePath("/");
   return {
     success: true,
-    message: "Account created successfully! Please verify your email if required.",
+    message: "Account created successfully! Welcome to RoomSplits.",
     user: {
       id: data.user.id,
       email: data.user.email || email,
@@ -92,12 +91,11 @@ export async function signUpAction(formData: FormData): Promise<AuthActionResult
 
 /**
  * Sign In Server Action
- * Authenticates user credentials & sets session cookies
+ * Authenticates user credentials with Supabase Auth & sets secure session cookies
  */
 export async function signInAction(formData: FormData): Promise<AuthActionResult> {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
-  const expectedRole = formData.get("role") as string;
 
   if (!email || !password) {
     return { success: false, message: "Email and password are required." };
@@ -114,16 +112,9 @@ export async function signInAction(formData: FormData): Promise<AuthActionResult
     return { success: false, message: error.message };
   }
 
-  const userRole = data.user.user_metadata?.role || "tenant";
-
-  // Role verification guard
-  if (expectedRole && expectedRole !== "all" && userRole !== expectedRole) {
-    await supabase.auth.signOut();
-    return {
-      success: false,
-      message: `Access denied. Account is registered as '${userRole}', not '${expectedRole}'.`,
-    };
-  }
+  // Fetch true server-verified user role
+  const authUser = await getAuthenticatedUser();
+  const userRole = authUser?.role || "tenant";
 
   revalidatePath("/");
   return {
@@ -132,7 +123,7 @@ export async function signInAction(formData: FormData): Promise<AuthActionResult
     user: {
       id: data.user.id,
       email: data.user.email || email,
-      fullName: data.user.user_metadata?.full_name || "User",
+      fullName: authUser?.fullName || data.user.user_metadata?.full_name || "User",
       role: userRole as "tenant" | "owner" | "admin",
     },
   };
@@ -140,6 +131,7 @@ export async function signInAction(formData: FormData): Promise<AuthActionResult
 
 /**
  * Sign Out Server Action
+ * Invalidates session and clears cookies
  */
 export async function signOutAction(): Promise<void> {
   const supabase = await createClient();
@@ -150,6 +142,7 @@ export async function signOutAction(): Promise<void> {
 
 /**
  * Forgot Password Server Action
+ * Sends password reset email via Supabase Auth
  */
 export async function forgotPasswordAction(formData: FormData): Promise<AuthActionResult> {
   const email = formData.get("email") as string;
@@ -162,7 +155,7 @@ export async function forgotPasswordAction(formData: FormData): Promise<AuthActi
   const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/reset-password`,
+    redirectTo: `${origin}/auth/callback?next=/reset-password`,
   });
 
   if (error) {
@@ -177,6 +170,7 @@ export async function forgotPasswordAction(formData: FormData): Promise<AuthActi
 
 /**
  * Reset Password Server Action
+ * Updates user password in Supabase Auth
  */
 export async function resetPasswordAction(formData: FormData): Promise<AuthActionResult> {
   const newPassword = formData.get("password") as string;
@@ -202,20 +196,18 @@ export async function resetPasswordAction(formData: FormData): Promise<AuthActio
 }
 
 /**
- * Get Authenticated User Profile Server Action
+ * Get Authenticated User Profile Action
  */
 export async function getAuthUserAction() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
+  const user = await getAuthenticatedUser();
   if (!user) return null;
 
   return {
     id: user.id,
-    email: user.email || "",
-    fullName: user.user_metadata?.full_name || "User",
-    phone: user.user_metadata?.phone || "",
-    role: (user.user_metadata?.role || "tenant") as "tenant" | "owner" | "admin",
-    isVerified: user.user_metadata?.is_verified || false,
+    email: user.email,
+    fullName: user.fullName,
+    phone: user.phone,
+    role: user.role as "tenant" | "owner" | "admin",
+    isVerified: user.isVerified,
   };
 }

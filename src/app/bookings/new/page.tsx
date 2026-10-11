@@ -17,6 +17,7 @@ function NewBookingContent() {
 
   const [roomId, setRoomId] = useState(selectedRoomId);
   const [moveInDate, setMoveInDate] = useState("2026-10-15");
+  const [moveOutDate, setMoveOutDate] = useState("2027-01-15");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ function NewBookingContent() {
     setErrorMessage(null);
 
     try {
-      const draft = await bookingService.createBookingDraft({
+      const booking = await bookingService.createBooking({
         userId: "u-101",
         userName: "Aditya Kumar",
         userEmail: "aditya@example.com",
@@ -41,9 +42,10 @@ function NewBookingContent() {
         propertyId,
         roomId,
         moveInDate,
+        moveOutDate,
       });
 
-      router.push(`/bookings/checkout/${draft.id}`);
+      router.push(`/bookings/${booking.id}?confirmed=true`);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setErrorMessage(err.message);
@@ -64,7 +66,7 @@ function NewBookingContent() {
           <span>Back to Property Details</span>
         </Link>
         <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
-          Step 1 of 3: Review Reservation
+          Step 1 of 2: Room Selection & Confirmation
         </Badge>
       </div>
 
@@ -77,7 +79,7 @@ function NewBookingContent() {
               <span>Book Property / Room</span>
             </h1>
             <p className="text-sm text-slate-400 mt-1">
-              Select room category, choose your target move-in date, and review rent breakdown.
+              Select room category, choose your target move-in & move-out dates, and review rent breakdown.
             </p>
           </div>
 
@@ -86,7 +88,7 @@ function NewBookingContent() {
             <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <strong className="block font-bold text-rose-200">Double Booking Guard Triggered</strong>
+                <strong className="block font-bold text-rose-200">Room Booking Guard Triggered</strong>
                 <span>{errorMessage}</span>
               </div>
             </div>
@@ -174,21 +176,37 @@ function NewBookingContent() {
             </div>
 
             <h3 className="font-bold text-white text-base border-b border-slate-800 pb-3 pt-4">
-              2. Target Move-in Date
+              2. Target Move-in & Move-out Period
             </h3>
 
-            <div className="space-y-2">
-              <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
-                <Calendar className="h-4 w-4 text-emerald-400" />
-                Select Preferred Move-in Date
-              </label>
-              <input
-                type="date"
-                value={moveInDate}
-                onChange={(e) => setMoveInDate(e.target.value)}
-                required
-                className="w-full h-11 rounded-xl bg-slate-950 border border-slate-800 px-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/50"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4 text-emerald-400" />
+                  Target Move-in Date
+                </label>
+                <input
+                  type="date"
+                  value={moveInDate}
+                  onChange={(e) => setMoveInDate(e.target.value)}
+                  required
+                  className="w-full h-11 rounded-xl bg-slate-950 border border-slate-800 px-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4 text-emerald-400" />
+                  Target Move-out Date
+                </label>
+                <input
+                  type="date"
+                  value={moveOutDate}
+                  onChange={(e) => setMoveOutDate(e.target.value)}
+                  required
+                  className="w-full h-11 rounded-xl bg-slate-950 border border-slate-800 px-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </div>
             </div>
           </Card>
         </div>
@@ -197,16 +215,16 @@ function NewBookingContent() {
         <div className="space-y-4">
           <Card className="border-slate-800 bg-slate-900 p-6 space-y-5">
             <h3 className="font-bold text-white text-lg border-b border-slate-800 pb-3">
-              Payment Breakdown
+              Booking Snapshot
             </h3>
 
             <div className="space-y-3 text-xs text-slate-300">
               <div className="flex justify-between">
-                <span>First Month Rent</span>
+                <span>Monthly Rent</span>
                 <span className="font-semibold text-white">₹{monthlyRent.toLocaleString("en-IN")}</span>
               </div>
               <div className="flex justify-between">
-                <span>Security Deposit (Refundable)</span>
+                <span>Security Deposit</span>
                 <span className="font-semibold text-white">₹{securityDeposit.toLocaleString("en-IN")}</span>
               </div>
               <div className="flex justify-between">
@@ -215,7 +233,7 @@ function NewBookingContent() {
               </div>
 
               <div className="flex justify-between border-t border-slate-800 pt-3 text-sm font-bold text-white">
-                <span>Total Due Now</span>
+                <span>Total Snapshot Amount</span>
                 <span className="text-emerald-400 text-xl font-bold">₹{totalAmount.toLocaleString("en-IN")}</span>
               </div>
             </div>
@@ -227,7 +245,7 @@ function NewBookingContent() {
                 size="lg"
                 className="w-full gap-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950"
               >
-                {loading ? "Creating Draft..." : "Proceed to Payment"}
+                {loading ? "Creating Booking..." : "Confirm Booking"}
               </Button>
             </form>
 
@@ -236,7 +254,7 @@ function NewBookingContent() {
                 <ShieldCheck className="h-4 w-4" />
                 Double Booking Protection Active
               </span>
-              <p>Your room beds will be locked atomically upon payment confirmation.</p>
+              <p>Your room beds will be locked atomically upon confirmation. Rent & deposit payment will be settled in the next step.</p>
             </div>
           </Card>
         </div>

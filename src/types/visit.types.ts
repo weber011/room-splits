@@ -44,14 +44,20 @@ export interface VisitPass {
   owner: VisitOwnerInfo;
   preferredDate: string;
   preferredTime: string;
+  alternateDate?: string;
+  alternateTime?: string;
   status: VisitPassStatus;
   visitPassAmount: number;
   paymentStatus: VisitPaymentStatus;
   paymentId?: string;
   razorpayOrderId?: string;
   ownerConfirmation: OwnerConfirmationStatus;
+  studentMessage?: string;
+  ownerMessage?: string;
   ownerProposedDate?: string;
   ownerProposedTime?: string;
+  confirmedDate?: string;
+  confirmedTime?: string;
   visitNotes?: string;
   exactLocationVisibility: boolean;
   contactVisibility: boolean;
@@ -60,14 +66,12 @@ export interface VisitPass {
 }
 
 // Security rule helper for computed visibility
-export function computeVisitPassVisibility(status: VisitPassStatus, paymentStatus: VisitPaymentStatus): {
+export function computeVisitPassVisibility(status: VisitPassStatus, isPropertyUnlocked: boolean = true): {
   exactLocationVisibility: boolean;
   contactVisibility: boolean;
 } {
-  const isPaid = paymentStatus === "PAID";
   const isValidStatus = status === "CONFIRMED" || status === "RESCHEDULED" || status === "COMPLETED";
-
-  const isVisible = isPaid && isValidStatus;
+  const isVisible = isPropertyUnlocked && isValidStatus;
 
   return {
     exactLocationVisibility: isVisible,
